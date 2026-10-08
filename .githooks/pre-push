@@ -1,7 +1,6 @@
 #!/bin/sh
 # Abort the push when a commit being pushed adds something that looks like a
-# secret or a local config file. Git passes the destination remote as $1
-# (a name or a URL) and the refs being pushed on stdin.
+# secret or a local config file. Git passes the refs being pushed on stdin.
 # Enable once per clone: git config core.hooksPath .githooks
 root="$(git rev-parse --show-toplevel)" || exit 1
-exec python3 "$root/scripts/leak_guard.py" --root "$root" --pre-push --remote="$1"
+exec python3 "$root/scripts/leak_guard.py" --root "$root" --pre-push

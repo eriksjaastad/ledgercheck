@@ -4,26 +4,21 @@
 Usage:
     python3 scripts/leak_guard.py [--root DIR]             # files in the HEAD commit
     python3 scripts/leak_guard.py --history [--root DIR]   # every commit reachable from HEAD
-    python3 scripts/leak_guard.py --pre-push --remote NAME [--root DIR]  # git pre-push hook
+    python3 scripts/leak_guard.py --pre-push [--root DIR]  # commits being pushed (git hook)
 
 Only committed content is scanned, never the working tree: what matters is
 what a push would publish, and a key added in one commit and deleted in the
 next is still in the pushed history. ``--pre-push`` reads git's pre-push
 input (``<local ref> <local sha> <remote ref> <remote sha>`` per line) and
-scans every commit in each pushed range. ``--remote`` is the destination
-the hook was given (a remote name, or a URL):
+scans every commit in each pushed range:
 
-- the remote sha is known locally: ``<remote sha>..<local sha>``;
-- otherwise (a new branch, or a remote tip we have not fetched), and the
-  destination is a configured remote: everything that destination's
-  remote-tracking refs (``refs/remotes/<name>/*``) do not already have.
-  Commits other remotes have are still scanned: a branch pushed to a private
-  remote is checked again before it goes to a public one;
-- otherwise (a URL, an unknown name, or no ``--remote``): every commit
-  reachable from the local sha.
+- the remote sha (git reads it from the remote) exists locally:
+  ``<remote sha>..<local sha>``;
+- otherwise (a new branch, or a remote tip we do not have): every commit
+  reachable from the local sha. Local remote-tracking refs are never
+  trusted, since the remote may have changed since the last fetch.
 
-Remote-tracking refs are as of your last fetch. Deleting a remote branch
-scans nothing.
+Deleting a remote branch scans nothing.
 
 For every file a scanned commit adds or changes, it checks:
 
@@ -119,16 +114,8 @@ def _is_commit(root: Path, sha: str) -> bool:
     return done.returncode == 0
 
 
-def _configured_remote(root: Path, name: str | None) -> bool:
-    """``name`` is a configured remote whose name is safe to use as a ref pattern."""
-    if not name or any(c in name for c in "*?[\\") or name.startswith("-"):
-        return False
-    return name in git(root, "remote").decode().split()
-
-
-def pushed_commits(root: Path, lines: list[str], destination: str | None) -> list[str]:
+def pushed_commits(root: Path, lines: list[str]) -> list[str]:
     """Commits in the ranges a pre-push hook is given (one input line per ref)."""
-    known_remote = _configured_remote(root, destination)
     commits: dict[str, None] = {}
     for line in lines:
         parts = line.split()
@@ -137,9 +124,7 @@ def pushed_commits(root: Path, lines: list[str], destination: str | None) -> lis
         local, remote = parts[1], parts[3]
         if not ZERO_SHA.fullmatch(remote) and _is_commit(root, remote):
             spec = [f"{remote}..{local}"]
-        elif known_remote:  # only what this destination already has is skipped
-            spec = [local, "--not", f"--remotes={destination}"]
-        else:  # a URL or unknown destination: fail closed, scan everything
+        else:  # a new branch, or a remote tip we lack: fail closed, scan everything
             spec = [local]
         commits.update(dict.fromkeys(git(root, "rev-list", *spec).decode().split()))
     return list(commits)
@@ -192,13 +177,12 @@ def check_text(name: str, text: str) -> list[tuple[int, str]]:
     return findings
 
 
-def files_to_scan(root: Path, mode: str, stdin_lines: list[str],
-                  destination: str | None = None) -> list[tuple[str, str, str]]:
+def files_to_scan(root: Path, mode: str, stdin_lines: list[str]) -> list[tuple[str, str, str]]:
     """``(label, path, blob sha)`` for the mode: ``head``, ``history`` or ``pre-push``."""
     if mode == "head":
         return [("", path, sha) for path, sha in head_files(root)]
     commits = (git(root, "rev-list", "HEAD").decode().split() if mode == "history"
-               else pushed_commits(root, stdin_lines, destination))
+               else pushed_commits(root, stdin_lines))
     return [(f"{c[:12]} ", path, sha) for c in commits for path, sha in changed_files(root, c)]
 
 
@@ -229,13 +213,10 @@ def main(argv: list[str] | None = None) -> int:
                       help="scan every commit reachable from HEAD")
     mode.add_argument("--pre-push", action="store_const", const="pre-push", dest="mode",
                       help="scan the commits named on stdin in git's pre-push format")
-    parser.add_argument("--remote", metavar="NAME",
-                        help="with --pre-push: the destination remote name or URL (hook's $1)")
     args = parser.parse_args(argv)
     lines = sys.stdin.read().splitlines() if args.mode == "pre-push" else []
     try:
-        problems = scan(args.root, files_to_scan(args.root, args.mode or "head", lines,
-                                                 args.remote))
+        problems = scan(args.root, files_to_scan(args.root, args.mode or "head", lines))
     except GitError as exc:
         print(f"leak guard: {exc}", file=sys.stderr)
         return 2
