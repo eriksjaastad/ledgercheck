@@ -74,15 +74,18 @@ module only picks its root.
 from __future__ import annotations
 
 import argparse
+import errno
 import http.client
 import json
 import math
 import os
 import re
+import stat
 import sys
 import time
 import tomllib
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
@@ -105,6 +108,12 @@ DEFAULT_MAX_TOKENS = 1024
 MAX_RETRIES = 3
 MAX_BACKOFF_S = 30.0
 TIMEOUT_S = 60.0
+MAX_LOCAL_FILE_BYTES = 1 << 20  # .env and connections.local.toml
+MAX_RESPONSE_BYTES = 10 << 20
+MAX_ERROR_CHARS = 300
+MAX_SPEND_CAP_USD = Decimal(1_000_000)
+MAX_PRICE_PER_MTOK = Decimal(1_000_000)
+MAX_MAX_TOKENS = 1_000_000
 # Read from the working directory at call time; tests point these elsewhere.
 DOTENV_PATH = Path(".env")
 DEFAULT_CONFIG = Path("connections.local.toml")
@@ -145,16 +154,66 @@ class TransportError(RuntimeError):
     """The provider answered with an error or could not be reached."""
 
 
+_MIN_KEY_RUN = 8
+
+
+def _scrub(text: Any, key: str | None, limit: int = MAX_ERROR_CHARS) -> str:
+    """Outside text made safe for an error message, in this order: control characters
+    become spaces; the key, and any run of 8+ consecutive characters of it, is masked;
+    only then is the result cut to ``limit`` characters, so a cut can never leave part
+    of the key behind."""
+    text = "".join(c if c.isprintable() else " " for c in str(text))
+    if key:
+        text = text.replace(key, "[redacted]")
+        out, i = [], 0
+        while i < len(text):
+            n = 0
+            while i + n < len(text) and text[i:i + n + 1] in key:
+                n += 1
+            if n >= _MIN_KEY_RUN:
+                out.append("[redacted]")
+                i += n
+            else:
+                out.append(text[i])
+                i += 1
+        text = "".join(out)
+    return text if len(text) <= limit else text[:limit] + "..."
+
+
+def _shown(value: Any) -> str:
+    """A setting's value for an error message, kept short."""
+    text = repr(value)
+    return text if len(text) <= 40 else text[:40] + "..."
+
+
+def _read_limited(path: Path) -> bytes:
+    """A regular file's bytes, at most ``MAX_LOCAL_FILE_BYTES``; ``OSError`` or
+    ``ValueError`` (a NUL byte in the path) otherwise, never a hang on a FIFO."""
+    mode = path.stat().st_mode
+    if stat.S_ISDIR(mode):
+        raise IsADirectoryError(errno.EISDIR, "is a directory")
+    if not stat.S_ISREG(mode):
+        raise OSError(errno.EINVAL, "not a regular file")
+    with path.open("rb") as fh:
+        data = fh.read(MAX_LOCAL_FILE_BYTES + 1)
+    if len(data) > MAX_LOCAL_FILE_BYTES:
+        raise OSError(errno.EFBIG, f"larger than {MAX_LOCAL_FILE_BYTES} bytes")
+    return data
+
+
 def _read_dotenv(path: Path) -> dict[str, str]:
     """``KEY=VALUE`` lines with optional ``export``, quotes and `` # comment``.
 
     Tolerant on purpose: ``.env`` is often shared with other tools, so a line
-    this parser does not understand is skipped, never an error.
+    this parser does not understand is skipped, and a missing, unreadable or
+    odd ``.env`` (a directory, a FIFO, too large) is ignored, never an error.
     """
-    if not (path.is_file() and os.access(path, os.R_OK)):
-        return {}
+    try:
+        data = _read_limited(path)
+    except (OSError, ValueError):
+        data = b""
     values = {}
-    for line in path.read_bytes().decode("utf-8", errors="replace").splitlines():
+    for line in data.decode("utf-8", errors="replace").splitlines():
         m = _DOTENV_LINE.fullmatch(line)
         if m:
             name, double, single, bare = m.groups()
@@ -163,15 +222,35 @@ def _read_dotenv(path: Path) -> dict[str, str]:
 
 
 def _read_config(path: Path, required: bool) -> dict[str, Any]:
-    if not path.is_file():
+    """The connections file as a dict (``{}`` when absent and not ``required``).
+
+    Every read or parse failure is a ``ConnectionConfigError`` naming the path
+    and the problem, never the file's contents.
+    """
+    raw, problem = None, None
+    try:
+        raw = _read_limited(path)
+    except (FileNotFoundError, NotADirectoryError):
         if required:
-            raise ConnectionConfigError(f"{CONNECTIONS_FILE_ENV} names {path}, which does not "
-                                        "exist")
+            problem = f"{CONNECTIONS_FILE_ENV} names {path}, which does not exist"
+    except PermissionError:
+        problem = f"cannot read {path}: permission denied"
+    except ValueError:  # a NUL byte in the path
+        problem = f"{CONNECTIONS_FILE_ENV} is not a usable file path"
+    except OSError as exc:
+        problem = f"cannot read {path}: {exc.strerror or type(exc).__name__}"
+    if problem is not None:
+        raise ConnectionConfigError(problem)
+    if raw is None:
         return {}
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        data = tomllib.loads(raw.decode("utf-8"))
+    except UnicodeDecodeError:
+        raise ConnectionConfigError(f"cannot read {path}: not UTF-8") from None
     except tomllib.TOMLDecodeError as exc:
         raise ConnectionConfigError(f"{path}: {exc}") from None
+    except RecursionError:
+        raise ConnectionConfigError(f"{path}: nested too deeply") from None
     unknown = set(data) - _FILE_KEYS
     if unknown:
         raise ConnectionConfigError(f"{path}: unknown keys {sorted(unknown)}; "
@@ -220,32 +299,76 @@ class _Sources:
                                                              self.dotenv.get(name)))
 
 
-def _decimal(value: Any, what: str) -> Decimal:
-    try:
-        number = Decimal(str(value))
-    except InvalidOperation:
-        raise ConnectionConfigError(f"{what} must be a number, got {value!r}") from None
-    if isinstance(value, bool) or not number.is_finite() or number < 0:
-        raise ConnectionConfigError(f"{what} must be a finite number >= 0, got {value!r}")
+def _decimal(value: Any, what: str, maximum: Decimal) -> Decimal:
+    number = None
+    if isinstance(value, (int, float, str)) and not isinstance(value, bool):
+        try:
+            number = Decimal(str(value).strip())
+        except InvalidOperation:
+            number = None
+    if number is None:
+        raise ConnectionConfigError(f"{what} must be a number, got {_shown(value)}")
+    if not number.is_finite() or number < 0 or number > maximum:
+        raise ConnectionConfigError(
+            f"{what} must be a finite number from 0 to {maximum}, got {_shown(value)}")
     return number
 
 
+_WHOLE = re.compile(r"[0-9]{1,7}")  # ASCII digits only: "²".isdigit() is true
+
+
 def _max_tokens(raw: Any) -> int:
-    text = str(DEFAULT_MAX_TOKENS if raw is None else raw)
-    if not text.isdigit() or int(text) <= 0:
-        raise ConnectionConfigError(f"max_tokens must be a whole number > 0, got {raw!r}")
+    if raw is None:
+        return DEFAULT_MAX_TOKENS
+    text = str(raw).strip() if isinstance(raw, (int, str)) and not isinstance(raw, bool) else ""
+    if not _WHOLE.fullmatch(text) or not 0 < int(text) <= MAX_MAX_TOKENS:
+        raise ConnectionConfigError(
+            f"max_tokens must be a whole number from 1 to {MAX_MAX_TOKENS}, got {_shown(raw)}")
     return int(text)
 
 
 def _base_url(raw: Any) -> str:
-    url = str(raw or DEFAULT_BASE_URL).rstrip("/")
-    if not url.startswith("https://"):  # the key travels in a header
-        raise ConnectionConfigError(f"base_url must start with https://, got {url!r}")
+    """An https URL with a host and no ``user:password@``, query or fragment.
+
+    The key travels in a header, and the URL appears in error messages, so it
+    must not carry credentials of its own. Bad values are not echoed.
+    """
+    if raw is None:
+        return DEFAULT_BASE_URL
+    url = raw.strip().rstrip("/") if isinstance(raw, str) else ""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        valid = (parts.scheme == "https" and bool(parts.hostname) and parts.username is None
+                 and parts.password is None and not parts.query and not parts.fragment)
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ConnectionConfigError("base_url must be an https:// URL with a host and no "
+                                    "user:password@, query or fragment")
     return url
 
 
 def _cap(raw: Any) -> Decimal | None:
-    return None if raw is None else _decimal(raw, "spend_cap_usd")
+    return None if raw is None else _decimal(raw, "spend_cap_usd", MAX_SPEND_CAP_USD)
+
+
+def _provider(raw: Any) -> str:
+    if raw is None:
+        return "mock"
+    if not isinstance(raw, str):
+        raise ConnectionConfigError(f"provider must be a string, got a {type(raw).__name__}")
+    return raw.strip().lower() or "mock"
+
+
+def _model_id(tier: str) -> Callable[[Any], str | None]:
+    def parse(raw: Any) -> str | None:
+        if raw is not None and not isinstance(raw, str):
+            raise ConnectionConfigError(f"model {tier} must be a string like "
+                                        f"'provider/model-id', got a {type(raw).__name__}")
+        if raw is None:
+            return None
+        return raw.strip() or None
+    return parse
 
 
 def _parsed(problems: list[str], parse: Callable[[Any], Any], raw: Any, fallback: Any) -> Any:
@@ -258,7 +381,8 @@ def _parsed(problems: list[str], parse: Callable[[Any], Any], raw: Any, fallback
 
 
 def _key_ok(key: str) -> bool:
-    return not any(c.isspace() or not c.isprintable() for c in key)
+    """Printable ASCII with no whitespace: anything else breaks or corrupts the header."""
+    return key.isascii() and not any(c.isspace() or not c.isprintable() for c in key)
 
 
 def _prices(raw: Any) -> dict[str, tuple[Decimal, Decimal]]:
@@ -269,8 +393,9 @@ def _prices(raw: Any) -> dict[str, tuple[Decimal, Decimal]]:
         if not isinstance(entry, Mapping) or set(entry) != {"prompt", "completion"}:
             raise ConnectionConfigError(f'[prices."{model}"] needs exactly prompt and completion '
                                         "(USD per million tokens)")
-        prices[model] = (_decimal(entry["prompt"], f"{model} prompt price"),
-                         _decimal(entry["completion"], f"{model} completion price"))
+        prices[model] = (_decimal(entry["prompt"], f"{model} prompt price", MAX_PRICE_PER_MTOK),
+                         _decimal(entry["completion"], f"{model} completion price",
+                                  MAX_PRICE_PER_MTOK))
     return prices
 
 
@@ -308,24 +433,39 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         raw[name], sources[name] = found if found else (None, "default")
     if "prices" in src.config:
         sources["prices"] = str(src.config_path)
-    key = None if raw["api_key"] is None else str(raw["api_key"])
+    models_table = src.config.get("models", {})
+    if not isinstance(models_table, Mapping):
+        problems.append("[models] must be a table with small and/or large")
+    elif unknown_tiers := sorted(set(models_table) - {"small", "large"}):
+        problems.append(f"[models] has unknown keys {unknown_tiers}; allowed: small, large")
+    key = raw["api_key"]
+    if key is not None and not isinstance(key, str):
+        problems.append(f"api_key in {sources['api_key']} must be a string")
+        key = None
     if key is not None and not _key_ok(key):
-        problems.append(f"{API_KEY_ENV} (from {sources['api_key']}) contains whitespace or "
-                        "control characters; check for a stray space, quote or line break")
+        problems.append(f"{API_KEY_ENV} (from {sources['api_key']}) contains whitespace, control "
+                        "or non-ASCII characters; check for a stray space, quote or line break")
+    models = {tier: _parsed(problems, _model_id(tier), raw[f"model_{tier}"], None)
+              for tier in ("small", "large")}
+    provider = _parsed(problems, _provider, raw["provider"], "mock")
+    base_url = _parsed(problems, _base_url, raw["base_url"], DEFAULT_BASE_URL)
+    cap = _parsed(problems, _cap, raw["spend_cap_usd"], None)
+    max_tokens = _parsed(problems, _max_tokens, raw["max_tokens"], DEFAULT_MAX_TOKENS)
+    prices = _parsed(problems, _prices, src.config.get("prices", {}), {})
     return Settings(
-        provider=str(raw["provider"] or "mock").strip().lower(),
-        models={tier: str(raw[f"model_{tier}"]).strip()
-                for tier in ("small", "large") if raw[f"model_{tier}"]},
-        base_url=_parsed(problems, _base_url, raw["base_url"], DEFAULT_BASE_URL),
-        spend_cap_usd=_parsed(problems, _cap, raw["spend_cap_usd"], None),
-        max_tokens=_parsed(problems, _max_tokens, raw["max_tokens"], DEFAULT_MAX_TOKENS),
-        prices=_parsed(problems, _prices, src.config.get("prices", {}), {}),
+        provider=provider,
+        models={tier: model for tier, model in models.items() if model},
+        base_url=base_url,
+        spend_cap_usd=cap,
+        max_tokens=max_tokens,
+        prices=prices,
         live_flag=src.env.get(ENV_FLAG) == "1",
         sources=sources,
         config_file=src.config_path,
         api_key=key,
         api_key_blank=src.blank(API_KEY_ENV),
-        problems=tuple(problems),
+        # Values are echoed in problems, so a key pasted into the wrong setting is masked.
+        problems=tuple(_scrub(problem, key, limit=500) for problem in problems),
     )
 
 
@@ -387,6 +527,22 @@ class Totals:
 Opener = Callable[..., Any]  # urllib.request.urlopen(request, timeout=...)
 
 
+class _Redirected(Exception):
+    """A 3xx answer, refused; the transport turns it into a ``TransportError``."""
+
+    def __init__(self, code: int) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+class _PossiblyBilled(Exception):
+    """The request reached the provider but no usable reply came back."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
 class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
     """Refuse every redirect: following one would re-send the Authorization header to
     whatever the Location names (another host, or plain http)."""
@@ -394,8 +550,7 @@ class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req: urllib.request.Request, fp: Any, code: int, msg: str,
                          headers: Any, newurl: str) -> None:
         fp.close()
-        raise TransportError(f"{req.full_url} answered HTTP {code} (a redirect); redirects are "
-                             "refused so the key is never sent anywhere else")
+        raise _Redirected(code)
 
 
 def _default_opener() -> Opener:
@@ -417,8 +572,16 @@ class OpenRouterTransport:
     under. An invalid reported cost (negative, not a number, infinite,
     absurdly large) is treated as missing.
 
+    A call that may have been billed but gave no usable reply (a 2xx body that
+    is cut off, not UTF-8, not JSON or too large, or a timeout or dropped
+    connection after the request was sent) is charged its full pre-call worst
+    case before the ``TransportError``. A request that never reached the
+    provider (connection refused, DNS, TLS) and non-2xx answers are not charged.
+
     Redirects are never followed: a 3xx answer is a ``TransportError`` naming
-    the status, so the key is only ever sent to ``base_url``.
+    the status, so the key is only ever sent to ``base_url``. Every error
+    message built from outside data goes through one scrubber that masks the
+    key (and any 8+ character piece of it) before anything is truncated.
 
     Build one per run (``totals`` is that run's spend). ``opener`` and
     ``sleep`` default to a urllib opener that refuses redirects and
@@ -432,7 +595,8 @@ class OpenRouterTransport:
         if not settings.api_key:
             raise LiveLLMDisabled(f"{API_KEY_ENV} is not set: {_WHERE_KEY}")
         if not _key_ok(settings.api_key):
-            raise ConnectionConfigError(f"{API_KEY_ENV} contains whitespace or control characters")
+            raise ConnectionConfigError(
+                f"{API_KEY_ENV} contains whitespace, control or non-ASCII characters")
         if settings.spend_cap_usd is None or settings.spend_cap_usd <= 0:
             raise ConnectionConfigError(
                 "a live run needs a spend cap: set LEDGERCHECK_SPEND_CAP_USD or spend_cap_usd "
@@ -464,7 +628,12 @@ class OpenRouterTransport:
         if refuse:
             raise SpendCapReached(f"spend cap: the next call could cost up to ${worst:.6f} but "
                                   f"${left:.6f} of ${self.totals.cap_usd} is left")
-        data = self._post({"model": model, "messages": messages, "max_tokens": self._max_tokens})
+        try:
+            data = self._post({"model": model, "messages": messages,
+                               "max_tokens": self._max_tokens})
+        except _PossiblyBilled as exc:
+            self._charge(bound, self._max_tokens, worst)  # unknown usage: the worst case
+            raise self._error(exc.detail) from None
         # Count the call before looking at the reply: a 200 response is billed
         # even when its choices are missing or malformed. Token counts are
         # clamped to their bounds, so a computed charge never exceeds `worst`.
@@ -476,49 +645,73 @@ class OpenRouterTransport:
         cost = _reported_cost(usage.get("cost"))
         if cost is None:
             cost = min((p_tok * prompt_price + c_tok * completion_price) / _MTOK, worst)
-        totals = self.totals
-        totals.calls += 1
-        totals.prompt_tokens += p_tok
-        totals.completion_tokens += c_tok
-        totals.cost_usd += cost
+        self._charge(p_tok, c_tok, cost)
         try:
             reply = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError):
-            raise TransportError(f"unexpected response shape from {self.url}") from None
+            raise self._error(f"unexpected response shape from {self.url}") from None
         if not isinstance(reply, str):
-            raise TransportError(f"no text reply from {self.url}")
+            raise self._error(f"no text reply from {self.url}")
         return reply
 
+    def _charge(self, prompt_tokens: int, completion_tokens: int, cost: Decimal) -> None:
+        totals = self.totals
+        totals.calls += 1
+        totals.prompt_tokens += prompt_tokens
+        totals.completion_tokens += completion_tokens
+        totals.cost_usd += cost
+
+    def _error(self, text: str) -> TransportError:
+        """The only way the transport builds an error: the text is always scrubbed."""
+        return TransportError(_scrub(text, self._key))
+
     def _post(self, payload: Mapping[str, Any]) -> Any:
+        """The parsed JSON reply. ``_PossiblyBilled`` once the request may have been
+        processed; ``TransportError`` when it surely was not."""
         body = json.dumps(payload).encode("utf-8")
         headers = {"Authorization": f"Bearer {self._key}", "Content-Type": "application/json"}
         for attempt in range(MAX_RETRIES + 1):
             request = urllib.request.Request(self.url, data=body, headers=headers, method="POST")
             try:
-                with self._open(request, timeout=TIMEOUT_S) as response:
-                    return json.loads(response.read().decode("utf-8"))
-            except urllib.error.HTTPError as exc:
+                response = self._open(request, timeout=TIMEOUT_S)
+            except _Redirected as exc:
+                raise self._error(f"{self.url} answered HTTP {exc.code} (a redirect); redirects "
+                                  "are refused so the key is never sent anywhere else") from None
+            except urllib.error.HTTPError as exc:  # a non-2xx answer: not billed
+                retry_after = exc.headers.get("Retry-After") if exc.headers else None
                 if exc.code != 429 or attempt == MAX_RETRIES:
-                    raise TransportError(self._redact(_http_message(exc, self.url))) from None
+                    raise self._error(_http_message(exc, self.url)) from None
+                exc.close()
                 self.totals.retries += 1
-                self._sleep(_backoff(exc.headers.get("Retry-After") if exc.headers else None,
-                                     attempt))
-            except (urllib.error.URLError, OSError) as exc:
-                reason = getattr(exc, "reason", exc)
-                raise TransportError(self._redact(f"cannot reach {self.url}: {reason}")) from None
-            except http.client.HTTPException as exc:  # e.g. IncompleteRead mid-response
-                raise TransportError(self._redact(
-                    f"bad or truncated response from {self.url}: {type(exc).__name__}")) from None
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                raise TransportError(f"response from {self.url} is not JSON") from None
+                self._sleep(_backoff(retry_after, attempt))
+                continue
+            except urllib.error.URLError as exc:  # connecting or sending failed: not billed
+                raise self._error(f"cannot reach {self.url}: {exc.reason}") from None
+            except (OSError, http.client.HTTPException) as exc:
+                # urllib wraps connect/send errors in URLError, so these came after the
+                # request was sent (a read timeout, a dropped connection): possibly billed.
+                raise _PossiblyBilled(
+                    f"no usable response from {self.url}: {type(exc).__name__}") from None
             except ValueError:  # e.g. http.client's "Invalid header value", which quotes the key
-                raise TransportError(
-                    f"could not send the request to {self.url}: invalid header or URL "
-                    "(details withheld, they may contain the key)") from None
+                raise self._error(f"could not send the request to {self.url}: invalid header "
+                                  "or URL (details withheld, they may contain the key)") from None
+            return self._read_reply(response)
         raise AssertionError("unreachable")
 
-    def _redact(self, text: str) -> str:
-        return text.replace(self._key, "[redacted]")
+    def _read_reply(self, response: Any) -> Any:
+        """Parse a 2xx reply; from here on any failure may have been billed."""
+        try:
+            with response:
+                raw = response.read(MAX_RESPONSE_BYTES + 1)
+            if len(raw) > MAX_RESPONSE_BYTES:
+                raise _PossiblyBilled(f"response from {self.url} is larger than "
+                                      f"{MAX_RESPONSE_BYTES} bytes")
+            return json.loads(raw.decode("utf-8"))
+        except (OSError, http.client.HTTPException) as exc:  # e.g. IncompleteRead, timeout
+            raise _PossiblyBilled(
+                f"bad or truncated response from {self.url}: {type(exc).__name__}") from None
+        except (ValueError, RecursionError):  # not UTF-8, not JSON, absurd numbers or nesting
+            raise _PossiblyBilled(f"response from {self.url} is not JSON") from None
 
 
 def _count(value: Any, bound: int) -> int:
@@ -554,13 +747,15 @@ def _reported_cost(value: Any) -> Decimal | None:
 
 
 def _http_message(exc: urllib.error.HTTPError, url: str) -> str:
-    detail = ""
+    """The provider's error, unredacted and uncut: callers pass it to ``_scrub``."""
+    detail: Any = ""
     try:
-        detail = json.loads(exc.read().decode("utf-8"))["error"]["message"]
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        detail = json.loads(exc.read(64 << 10).decode("utf-8"))["error"]["message"]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError,
+            http.client.HTTPException):
         detail = exc.reason or ""
     rate = " (rate limited after retries)" if exc.code == 429 else ""
-    return f"{url} returned HTTP {exc.code}{rate}: {str(detail)[:300]}"
+    return f"{url} returned HTTP {exc.code}{rate}: {detail}"
 
 
 def _backoff(retry_after: str | None, attempt: int) -> float:
@@ -628,6 +823,14 @@ def run_store(root: str | os.PathLike[str] | None = None) -> RunStore:
 # --- ledgercheck connections ------------------------------------------------------
 
 
+def _file_state(path: Path) -> str:
+    try:
+        state = "found" if path.is_file() else "not found"
+    except (OSError, ValueError):  # an unreadable directory, a NUL byte in the path
+        state = "unreadable"
+    return state
+
+
 def describe(env: Mapping[str, str] | None = None) -> list[tuple[str, str, str]]:
     """``(setting, value, source)`` rows for ``ledgercheck connections``; never the key."""
     s, src = load_settings(env), _Sources(env, with_file=False)
@@ -636,10 +839,9 @@ def describe(env: Mapping[str, str] | None = None) -> list[tuple[str, str, str]]
     if s.api_key is None and s.api_key_blank:
         key = "missing (blank)"
     elif s.api_key is not None and not _key_ok(s.api_key):
-        key += ", invalid (whitespace or control characters)"
+        key += ", invalid (whitespace, control or non-ASCII characters)"
     langfuse = all(src.value(n) for n in (PUBLIC_KEY_ENV, SECRET_KEY_ENV))
-    config = ("" if s.config_file is None
-              else f"{s.config_file} ({'found' if s.config_file.is_file() else 'not found'})")
+    config = "" if s.config_file is None else f"{s.config_file} ({_file_state(s.config_file)})"
     return [
         ("provider", s.provider, s.sources["provider"]),
         ("live calls", f"on ({ENV_FLAG}=1)" if s.live_flag else f"off ({ENV_FLAG} is not 1)",
@@ -669,6 +871,7 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
 def run(args: argparse.Namespace) -> int:
     """Print the resolved settings; exit 2 if any setting is invalid, else 0."""
     for name, value, source in describe():
+        value, source = _scrub(value, None, 200), _scrub(source, None, 200)  # no control chars
         print(f"{name:<12} {value:<44} {source}".rstrip())
     problems = load_settings().problems
     for problem in problems:

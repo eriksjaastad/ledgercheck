@@ -6,6 +6,7 @@ import email.message
 import http.client
 import io
 import json
+import os
 import re
 import socketserver
 import threading
@@ -231,7 +232,8 @@ def test_key_with_whitespace_or_control_chars_is_refused_without_echo(local, mon
     if bad.strip() == KEY:  # surrounding whitespace is stripped, so this one is fine
         assert connections.require_live().api_key == KEY
         return
-    with pytest.raises(ConnectionConfigError, match="whitespace or control characters") as exc:
+    with pytest.raises(ConnectionConfigError,
+                       match="whitespace, control or non-ASCII characters") as exc:
         connections.require_live()
     assert KEY[8:] not in str(exc.value)
     assert cli_main(["connections"]) == 2
@@ -670,3 +672,295 @@ def test_local_config_files_are_ignored_by_git_and_docker():
         lines = set((root / ignore).read_text(encoding="utf-8").splitlines())
         assert {".env", ".env.*", "connections.local*"} <= lines, ignore
     assert "!.env.example" in (root / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+
+# --- error text: redact first, then cut; one scrub path ------------------------------
+
+URL = "https://openrouter.ai/api/v1/chat/completions"
+
+
+def _longest_key_run(text):
+    """Length of the longest piece of KEY in ``text`` (so assertions never print the key)."""
+    best = 0
+    for i in range(len(text)):
+        n = 0
+        while i + n < len(text) and text[i:i + n + 1] in KEY:
+            n += 1
+        best = max(best, n)
+    return best
+
+
+def _provider_error(detail, code=401):
+    body = json.dumps({"error": {"message": detail}}).encode()
+    transport = OpenRouterTransport(live_settings(), opener=FakeOpener(http_error(code, body)))
+    with pytest.raises(TransportError) as exc:
+        transport(MODEL, "x")
+    assert transport.totals.calls == 0  # a non-2xx answer is not charged
+    return str(exc.value)
+
+
+PREFIX = len(f"{URL} returned HTTP 401: ")
+
+
+@pytest.mark.parametrize("padding", [290, 290 - PREFIX, connections.MAX_ERROR_CHARS - PREFIX - 3])
+def test_a_key_straddling_the_error_length_limit_never_leaks(padding):
+    message = _provider_error("A" * padding + KEY + " rejected")
+    assert _longest_key_run(message) < 8, "a piece of the key reached the error message"
+
+
+def test_an_echoed_key_fragment_is_masked():
+    message = _provider_error(f"key ending in {KEY[-12:]} was rejected")
+    assert _longest_key_run(message) < 8 and "was rejected" in message
+
+
+def test_short_provider_errors_read_clearly_and_lose_control_characters():
+    assert _provider_error("Invalid model id", code=400) == (
+        f"{URL} returned HTTP 400: Invalid model id")
+    message = _provider_error("bad\x1b[31m red\nline\x00", code=400)
+    assert "\x1b" not in message and "\n" not in message and "\x00" not in message
+    assert message.endswith("bad [31m red line ")
+
+
+def test_scrub_masks_before_cutting():
+    text = "x" * 295 + KEY
+    assert _longest_key_run(connections._scrub(text, KEY)) < 8
+    assert connections._scrub(text, None) == "x" * 295 + KEY[:5] + "..."  # no key known: cut only
+
+
+def test_an_unreadable_error_body_is_not_a_traceback():
+    exc = urllib.error.HTTPError(URL, 502, "Bad Gateway", email.message.Message(),
+                                 BrokenResponse(http.client.IncompleteRead(b"{", 50)))
+    transport = OpenRouterTransport(live_settings(), opener=FakeOpener(exc))
+    with pytest.raises(TransportError, match="HTTP 502: Bad Gateway"):
+        transport(MODEL, "x")
+
+
+# --- a call that may have been billed is charged its worst case ---------------------
+
+
+class RawOpener:
+    """Replays raw response bodies (bytes), response objects or exceptions."""
+
+    def __init__(self, *replies):
+        self.replies, self.calls = list(replies), 0
+
+    def __call__(self, request, timeout):
+        self.calls += 1
+        reply = self.replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return io.BytesIO(reply) if isinstance(reply, bytes) else reply
+
+
+def _worst(prompt="x", max_tokens=100):
+    bound = connections.max_prompt_tokens([{"role": "user", "content": prompt}])
+    return bound, (bound * 1 + max_tokens * 2) / Decimal(1_000_000)
+
+
+POSSIBLY_BILLED = {
+    "truncated JSON": b'{"choices": [{"message": {"content": "o',
+    "not UTF-8": b'\xff\xfe{"choices": []}',
+    "IncompleteRead": BrokenResponse(http.client.IncompleteRead(b'{"cho', 200)),
+    "read timeout": BrokenResponse(TimeoutError("timed out")),
+    "JSON array": b"[1, 2]",
+    "JSON string": b'"just text"',
+    "JSON null": b"null",
+    "absurd nesting": b"[" * 100_000,
+    "timeout waiting for the answer": TimeoutError("timed out"),
+    "dropped after sending": http.client.RemoteDisconnected("closed"),
+}
+
+
+@pytest.mark.parametrize("case", list(POSSIBLY_BILLED))
+def test_a_possibly_billed_bad_reply_is_charged_the_worst_case(case):
+    bound, worst = _worst()
+    opener = RawOpener(POSSIBLY_BILLED[case])
+    settings = live_settings(**{ENV["spend_cap_usd"]: str(worst * Decimal("1.5"))})
+    transport = OpenRouterTransport(settings, opener=opener)
+    with pytest.raises(TransportError) as exc:
+        transport(MODEL, "x")
+    t = transport.totals
+    assert (t.calls, t.prompt_tokens, t.completion_tokens, t.cost_usd) == (1, bound, 100, worst)
+    assert KEY not in str(exc.value)
+    with pytest.raises(SpendCapReached):  # what is left no longer covers another worst case
+        transport(MODEL, "x")
+    assert opener.calls == 1
+
+
+def test_an_oversized_reply_is_charged_and_not_read_whole(monkeypatch):
+    monkeypatch.setattr(connections, "MAX_RESPONSE_BYTES", 16)
+    _, worst = _worst()
+    transport = OpenRouterTransport(live_settings(),
+                                    opener=RawOpener(json.dumps(completion("ok")).encode()))
+    with pytest.raises(TransportError, match="larger than 16 bytes"):
+        transport(MODEL, "x")
+    assert (transport.totals.calls, transport.totals.cost_usd) == (1, worst)
+
+
+@pytest.mark.parametrize("error", [
+    urllib.error.URLError(ConnectionRefusedError(61, "Connection refused")),
+    urllib.error.URLError("nodename nor servname provided"),
+    http_error(500, b'{"error": {"message": "upstream"}}'),
+    ValueError("Invalid header value"),
+])
+def test_a_request_that_never_reached_the_provider_is_not_charged(error):
+    transport = OpenRouterTransport(live_settings(), opener=RawOpener(error))
+    with pytest.raises(TransportError):
+        transport(MODEL, "x")
+    assert (transport.totals.calls, transport.totals.cost_usd) == (0, 0)
+
+
+def test_connection_refused_by_a_real_closed_port_is_not_charged(local_server):
+    import socket
+
+    with socket.socket() as probe:  # a loopback port with nothing listening
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    transport = OpenRouterTransport(_at(f"http://127.0.0.1:{port}/api/v1"))
+    with pytest.raises(TransportError, match="cannot reach"):
+        transport(MODEL, "x")
+    assert (transport.totals.calls, transport.totals.cost_usd) == (0, 0)
+
+
+def test_cli_live_judge_reports_a_possibly_billed_call(local, monkeypatch, capsys):
+    local(toml=LIVE_TOML)
+    monkeypatch.setenv(ENV_FLAG, "1")
+    monkeypatch.setenv(API_KEY_ENV, KEY)
+    monkeypatch.setattr(connections, "_default_opener", lambda: RawOpener(b'{"choices": ['))
+    assert cli_main(["judge", "--live", "--case", CASE]) == judge.EXIT_ERROR
+    err = capsys.readouterr().err
+    assert "is not JSON" in err and f"live run ({MODEL}): 1 calls" in err and KEY not in err
+
+
+# --- config read errors are config problems (exit 2), never tracebacks ---------------
+
+
+def _connections_exit(capsys):
+    code = cli_main(["connections"])
+    out = capsys.readouterr()
+    assert "Traceback" not in out.err
+    return code, out.err
+
+
+def test_a_non_utf8_connections_file_exits_2(local, monkeypatch, capsys):
+    (local() / "connections.local.toml").write_bytes(b'provider = "\xff"\n')
+    code, err = _connections_exit(capsys)
+    assert code == 2 and "not UTF-8" in err
+    monkeypatch.setenv(ENV_FLAG, "1")
+    assert cli_main(["judge", "--live"]) == judge.EXIT_ERROR  # the live path says the same
+    assert "not UTF-8" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs a non-root POSIX user")
+def test_an_unreadable_connections_file_or_directory_exits_2(local, monkeypatch, capsys):
+    root = local(toml=LIVE_TOML)
+    path = root / "connections.local.toml"
+    path.chmod(0)
+    try:
+        code, err = _connections_exit(capsys)
+        assert code == 2 and "permission denied" in err
+    finally:
+        path.chmod(0o644)
+    locked = root / "locked"
+    locked.mkdir()
+    (locked / ".env").write_text(f"{API_KEY_ENV}={KEY}\n")
+    monkeypatch.setattr(connections, "DEFAULT_CONFIG", locked / "connections.local.toml")
+    monkeypatch.setattr(connections, "DOTENV_PATH", locked / ".env")
+    locked.chmod(0)
+    try:
+        code, err = _connections_exit(capsys)  # stat() itself is refused
+        assert code == 2 and "permission denied" in err
+        assert load_settings().api_key is None  # an unreadable .env is skipped, not a crash
+        assert cli_main(["judge", "--case", CASE]) == judge.EXIT_PASS
+    finally:
+        locked.chmod(0o755)
+
+
+@pytest.mark.parametrize("make, problem", [
+    (lambda p: p.mkdir(), "is a directory"),
+    (lambda p: os.mkfifo(p), "not a regular file"),
+])
+def test_odd_files_at_the_config_path_exit_2_without_hanging(local, capsys, make, problem):
+    make(local() / "connections.local.toml")
+    code, err = _connections_exit(capsys)
+    assert code == 2 and problem in err
+
+
+def test_odd_dotenv_files_are_skipped(local, capsys):
+    os.mkfifo(local() / ".env")  # reading a FIFO would block forever
+    assert load_settings().problems == ()
+    (local() / "connections.local.toml").write_text(LIVE_TOML)
+    assert cli_main(["connections"]) == 0
+
+
+def test_a_nul_byte_in_the_connections_file_path_exits_2(local, capsys):
+    local(dotenv=f"{connections.CONNECTIONS_FILE_ENV}=conn\x00ections.toml\n")
+    code, err = _connections_exit(capsys)
+    assert code == 2 and "not a usable file path" in err
+    assert "\x00" not in capsys.readouterr().out
+
+
+# Built at runtime: a URL with a user and password is what is being tested.
+USERINFO_URL = "https:/" + "/user:pw-secret" + "@host.example/v1"
+ODD_TOML = [
+    ("provider = false\n", "provider must be a string"),
+    ("api_key = 12345\n", "api_key in"),
+    ("[models]\nsmall = 5\n", "model small must be a string"),
+    ('models = "vendor/x"\n', "[models] must be a table"),
+    ('[models]\nmedium = "vendor/x"\n', "[models] has unknown keys"),
+    ("base_url = 5\n", "base_url must be an https"),
+    (f'base_url = "{USERINFO_URL}"\n', "base_url must be an https"),
+    ('base_url = "https://host.example/v1?x=1"\n', "base_url must be an https"),
+    ('base_url = "https://[::1/v1"\n', "base_url must be an https"),
+    ("spend_cap_usd = nan\n", "spend_cap_usd must be a finite number"),
+    ("spend_cap_usd = inf\n", "spend_cap_usd must be a finite number"),
+    ("spend_cap_usd = -1\n", "spend_cap_usd must be a finite number"),
+    ("spend_cap_usd = 1e300\n", "spend_cap_usd must be a finite number"),
+    ('spend_cap_usd = "abc"\n', "spend_cap_usd must be a number"),
+    ("spend_cap_usd = true\n", "spend_cap_usd must be a number"),
+    ("spend_cap_usd = {a = 1}\n", "spend_cap_usd must be a number"),
+    ("spend_cap_usd = [1]\n", "spend_cap_usd must be a number"),
+    ("max_tokens = 1.5\n", "max_tokens must be a whole number"),
+    ("max_tokens = true\n", "max_tokens must be a whole number"),
+    ('max_tokens = "²"\n', "max_tokens must be a whole number"),
+    ("max_tokens = 100000000\n", "max_tokens must be a whole number"),
+    (f'max_tokens = "{"9" * 5000}"\n', "max_tokens must be a whole number"),
+    (f'[prices."{MODEL}"]\nprompt = {{a = 1}}\ncompletion = 1\n', "prompt price must be a number"),
+    (f'[prices."{MODEL}"]\nprompt = nan\ncompletion = 1\n', "prompt price must be a finite"),
+    (f'[prices."{MODEL}"]\nprompt = 1\ncompletion = 1e300\n', "completion price must be a"),
+]
+
+
+@pytest.mark.parametrize("toml, problem", ODD_TOML)
+def test_odd_value_types_are_named_problems_not_crashes(local, capsys, toml, problem):
+    local(toml=toml)
+    assert any(problem in p for p in load_settings().problems), load_settings().problems
+    code, err = _connections_exit(capsys)
+    assert code == 2 and problem in err and "pw-secret" not in err
+    assert type(connections.router()) is MockRouter  # the offline default still works
+
+
+@pytest.mark.parametrize("name, value", [
+    ("spend_cap_usd", "1e999999999"), ("spend_cap_usd", "sNaN"), ("spend_cap_usd", "Infinity"),
+    ("max_tokens", "²"), ("max_tokens", "1e3"), ("max_tokens", "-5"),
+])
+def test_odd_numeric_env_values_are_named_problems(monkeypatch, name, value):
+    monkeypatch.setenv(ENV[name], value)
+    assert any(name in p for p in load_settings().problems)
+
+
+def test_a_key_pasted_into_another_setting_is_masked(monkeypatch, capsys):
+    monkeypatch.setenv(API_KEY_ENV, KEY)
+    monkeypatch.setenv(ENV["max_tokens"], KEY)
+    problems = load_settings().problems
+    assert problems and all(_longest_key_run(p) < 8 for p in problems)
+    assert cli_main(["connections"]) == 2
+    out = capsys.readouterr()
+    assert _longest_key_run(out.out + out.err) < 8
+
+
+def test_a_non_ascii_key_is_refused(monkeypatch):
+    monkeypatch.setenv(ENV_FLAG, "1")
+    monkeypatch.setenv(API_KEY_ENV, KEY.replace("real", "réal"))
+    with pytest.raises(ConnectionConfigError, match="non-ASCII"):
+        connections.require_live()

@@ -461,7 +461,10 @@ def select_cases(case_ids: Sequence[str] | None) -> list[GoldenCase]:
 
 
 def _live_judge() -> LiveJudge:
-    provider = connections.load_settings().provider
+    settings = connections.load_settings()
+    if settings.problems:  # e.g. an unreadable connections file: say so, not "provider mock"
+        raise connections.ConnectionConfigError("; ".join(settings.problems))
+    provider = settings.provider
     if provider != "openrouter":
         raise connections.ConnectionConfigError(
             f"--live needs provider openrouter (now {provider!r}): set "
