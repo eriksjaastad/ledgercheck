@@ -299,7 +299,9 @@ class CaseReport:
 class SuiteReport:
     judge: str
     cases: tuple[CaseReport, ...]
-    thresholds: Mapping[str, int] = THRESHOLDS
+    # default_factory: a mappingproxy is unhashable before Python 3.12, and
+    # dataclasses rejects unhashable defaults. Same shared object either way.
+    thresholds: Mapping[str, int] = field(default_factory=lambda: THRESHOLDS)
     min_pass_rate: Decimal = SUITE_MIN_PASS_RATE
     passed_count: int = field(init=False)
 

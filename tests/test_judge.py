@@ -222,6 +222,12 @@ def test_run_suite_rejects_vacuous_rules(kwargs) -> None:
         run_suite(MockJudge(), **kwargs)
 
 
+def test_suite_report_defaults_to_the_shared_read_only_thresholds() -> None:
+    cases = run_suite(MockJudge(), cases=CASES[:1]).cases
+    report = judge.SuiteReport(judge="mock", cases=cases)
+    assert report.thresholds is judge.THRESHOLDS and report.passed
+
+
 @pytest.mark.parametrize("env", [{}, {"LEDGERCHECK_LLM": "true", "OPENROUTER_API_KEY": "k"},
                                  {"LEDGERCHECK_LLM": "1"}, {"LEDGERCHECK_LLM": "1",
                                                             "OPENROUTER_API_KEY": "  "}])
