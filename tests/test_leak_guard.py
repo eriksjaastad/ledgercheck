@@ -67,6 +67,30 @@ def test_the_examples_and_test_fakes_pass(tmp_path):
         assert guard(tmp_path, *args).returncode == 0
 
 
+SLUGS = ("risk-assessment-for-vendor-invoices-and-approvals",
+         "task-reconcile-every-open-purchase-order-line-items",
+         "disk-usage-report-for-the-quarterly-ledger-archive",
+         "desk-lf-layout-notes-for-the-finance-office-team")
+
+
+def test_hyphenated_words_are_not_keys(tmp_path):
+    commit(tmp_path, {"docs/notes.md": "".join(f"See {s} and docs/{s}.md\n" for s in SLUGS)})
+    done = guard(tmp_path)
+    assert done.returncode == 0, done.stderr
+
+
+@pytest.mark.parametrize("line", [
+    "{key}\n", "OPENROUTER_API_KEY={key}\n", 'value: "{key}"\n', "value: '{key}'\n",
+    "export KEY {key}\n", "\t{key} trailing\n",
+])
+@pytest.mark.parametrize("key", [FAKE_OPENROUTER, FAKE_GENERIC, "sk-lf-" + "c3D4" * 6])
+def test_keys_at_a_token_start_still_fail(tmp_path, line, key):
+    commit(tmp_path, {"app/config.txt": line.format(key=key)})
+    done = guard(tmp_path)
+    assert done.returncode == 1 and "app/config.txt:1:" in done.stderr
+    assert key not in done.stderr
+
+
 @pytest.mark.parametrize("name, text, expect", [
     (".env", "X=1\n", ".env: local .env file is committed"),
     ("config/.env.production", "X=1\n", "local .env file is committed"),

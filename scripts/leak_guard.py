@@ -40,10 +40,12 @@ import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 
+# A key starts a token: never inside a word such as "risk-assessment-...".
+_START = r"(?<![A-Za-z0-9_-])"
 KEY_PATTERNS = (
-    ("OpenRouter key", re.compile(r"sk-or-v1-[A-Za-z0-9]{20,}")),
-    ("API key", re.compile(r"sk-(?!or-v1-)(?:ant-|proj-)?[A-Za-z0-9_-]{32,}")),
-    ("Langfuse key", re.compile(r"[ps]k-lf-[A-Za-z0-9-]{20,}")),
+    ("OpenRouter key", re.compile(_START + r"sk-or-v1-[A-Za-z0-9]{20,}")),
+    ("API key", re.compile(_START + r"sk-(?!or-v1-)(?:ant-|proj-)?[A-Za-z0-9_-]{32,}")),
+    ("Langfuse key", re.compile(_START + r"[ps]k-lf-[A-Za-z0-9-]{20,}")),
 )
 ASSIGNMENT = re.compile(
     r"""(?i)\b[\w-]*(api[_-]?key|secret|token|password)\s*[:=]\s*["']([^"'\s]{16,})["']""")
