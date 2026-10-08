@@ -679,15 +679,29 @@ def test_local_config_files_are_ignored_by_git_and_docker():
 URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
-def _longest_key_run(text):
-    """Length of the longest piece of KEY in ``text`` (so assertions never print the key)."""
+def _assert_hidden(*texts, secret=None):
+    """Fail if any text shows ``secret`` (default KEY) or an 8+ character piece of it.
+
+    It asserts on a precomputed bool, so pytest's assertion rewriting has nothing to
+    print: a failure never shows the secret or the text that leaked it.
+    """
+    secret = KEY if secret is None else secret
+    forms = {secret, repr(secret)[1:-1], json.dumps(secret)[1:-1],
+             "".join(c if c.isprintable() else " " for c in secret)}
+    leaked = any(_piece_len(str(t), form) >= 8 for t in texts for form in forms)
+    assert not leaked, "a secret (or an 8+ character piece of one) reached an output surface"
+
+
+def _piece_len(text, secret):
     best = 0
     for i in range(len(text)):
         n = 0
-        while i + n < len(text) and text[i:i + n + 1] in KEY:
+        while i + n < len(text) and text[i:i + n + 1] in secret:
             n += 1
         best = max(best, n)
     return best
+
+
 
 
 def _provider_error(detail, code=401):
@@ -705,12 +719,13 @@ PREFIX = len(f"{URL} returned HTTP 401: ")
 @pytest.mark.parametrize("padding", [290, 290 - PREFIX, connections.MAX_ERROR_CHARS - PREFIX - 3])
 def test_a_key_straddling_the_error_length_limit_never_leaks(padding):
     message = _provider_error("A" * padding + KEY + " rejected")
-    assert _longest_key_run(message) < 8, "a piece of the key reached the error message"
+    _assert_hidden(message)
 
 
 def test_an_echoed_key_fragment_is_masked():
     message = _provider_error(f"key ending in {KEY[-12:]} was rejected")
-    assert _longest_key_run(message) < 8 and "was rejected" in message
+    _assert_hidden(message)
+    assert "was rejected" in message
 
 
 def test_short_provider_errors_read_clearly_and_lose_control_characters():
@@ -723,7 +738,7 @@ def test_short_provider_errors_read_clearly_and_lose_control_characters():
 
 def test_scrub_masks_before_cutting():
     text = "x" * 295 + KEY
-    assert _longest_key_run(connections._scrub(text, KEY)) < 8
+    _assert_hidden(connections._scrub(text, KEY))
     assert connections._scrub(text, None) == "x" * 295 + KEY[:5] + "..."  # no key known: cut only
 
 
@@ -954,10 +969,11 @@ def test_a_key_pasted_into_another_setting_is_masked(monkeypatch, capsys):
     monkeypatch.setenv(API_KEY_ENV, KEY)
     monkeypatch.setenv(ENV["max_tokens"], KEY)
     problems = load_settings().problems
-    assert problems and all(_longest_key_run(p) < 8 for p in problems)
+    assert problems
+    _assert_hidden(*problems)
     assert cli_main(["connections"]) == 2
     out = capsys.readouterr()
-    assert _longest_key_run(out.out + out.err) < 8
+    _assert_hidden(out.out, out.err)
 
 
 def test_a_non_ascii_key_is_refused(monkeypatch):
@@ -1063,19 +1079,8 @@ def test_a_hostile_connections_file_path_is_a_config_problem(monkeypatch, capsys
 PASTE = "sk-or-v1-" + "0123456789abcdef" * 4  # realistic shape, built at runtime, not a key
 
 
-def _run_of(text, secret=PASTE):
-    """Length of the longest piece of ``secret`` in ``text`` (never prints the secret)."""
-    best = 0
-    for i in range(len(text)):
-        n = 0
-        while i + n < len(text) and text[i:i + n + 1] in secret:
-            n += 1
-        best = max(best, n)
-    return best
 
 
-def _clean(text):
-    return _run_of(str(text)) < 8
 
 
 PASTED_ENV = {
@@ -1097,24 +1102,26 @@ PASTED_TOML = {
 
 def _assert_key_never_shows(monkeypatch, capsys):
     settings = load_settings()  # never raises
-    assert any("contains your API key" in p for p in settings.problems), settings.problems
+    assert any("contains a secret" in p for p in settings.problems), settings.problems
     for text in (repr(settings), str(settings), *settings.problems, *settings.live_gaps):
-        assert _clean(text), "a piece of the pasted key is shown"
-    assert all(_clean(cell) for row in connections.describe() for cell in row)
+        _assert_hidden(text, secret=PASTE)
+    _assert_hidden(*(cell for row in connections.describe() for cell in row), secret=PASTE)
     assert cli_main(["connections"]) == 2
     out = capsys.readouterr()
-    assert _clean(out.out + out.err) and "Traceback" not in out.err
+    _assert_hidden(out.out, out.err, secret=PASTE)
+    assert "Traceback" not in out.err
     try:
         connections.router()
     except LiveLLMDisabled as exc:  # the spend gate, or the documented config error
-        assert _clean(exc)
+        _assert_hidden(exc, secret=PASTE)
     monkeypatch.setenv(ENV_FLAG, "1")
     with pytest.raises(ConnectionConfigError) as exc:
         connections.require_live()
-    assert _clean(exc.value)
+    _assert_hidden(exc.value, secret=PASTE)
     assert cli_main(["judge", "--live", "--case", CASE]) == judge.EXIT_ERROR
     out = capsys.readouterr()
-    assert _clean(out.out + out.err) and "Traceback" not in out.err
+    _assert_hidden(out.out, out.err, secret=PASTE)
+    assert "Traceback" not in out.err
 
 
 @pytest.mark.parametrize("case", list(PASTED_ENV))
@@ -1144,12 +1151,12 @@ def test_use_time_errors_and_reprs_mask_a_pasted_key():
     for model in (PASTE, "vendor/" + PASTE[-12:]):
         with pytest.raises(ConnectionConfigError, match="no price for") as exc:
             transport(model, "x")
-        assert _clean(exc.value)
+        _assert_hidden(exc.value, secret=PASTE)
     odd = connections.Settings(**{**settings.__dict__,
                                   "base_url": f"https://openrouter.ai/{PASTE}",
                                   "models": {"large": PASTE}})
-    assert _clean(repr(odd)) and _clean(repr(OpenRouterTransport(odd, opener=FakeOpener())))
-    assert _clean(connections.mask(f"model {PASTE}", {API_KEY_ENV: PASTE}))
+    _assert_hidden(repr(odd), repr(OpenRouterTransport(odd, opener=FakeOpener())),
+                   connections.mask(f"model {PASTE}", {API_KEY_ENV: PASTE}), secret=PASTE)
 
 
 class _PastedModelRouter:
@@ -1184,7 +1191,7 @@ def test_judge_live_output_masks_a_pasted_model_id(monkeypatch, capsys, fail):
     out = capsys.readouterr()
     assert code == (judge.EXIT_ERROR if fail else judge.EXIT_PASS)
     assert "live run (" in (out.err if fail else out.out)
-    assert _clean(out.out + out.err)
+    _assert_hidden(out.out, out.err, secret=PASTE)
 
 
 def test_an_unknown_provider_fails_validation_but_not_the_offline_default(monkeypatch, capsys):
@@ -1215,3 +1222,211 @@ def test_connections_reports_what_a_live_provider_still_needs(local, monkeypatch
     assert code == (0 if needs is None else 2)
     assert needs is None or f"connections: provider openrouter {needs}" in err
     assert type(load_settings()) is connections.Settings  # never raises
+
+
+# --- every configured secret is masked on every output surface ------------------------
+
+_HEX = "0123456789abcdef"
+SECRETS = {  # realistic shapes, built at runtime; none is a real credential
+    "openrouter key": (API_KEY_ENV, "sk-or-v1-" + _HEX * 4),
+    "langfuse secret": (connections.SECRET_KEY_ENV, "sk-lf-" + _HEX[::-1] * 2),
+    "langfuse public": (connections.PUBLIC_KEY_ENV, "pk-lf-" + _HEX[3:] * 2),
+    "url password": (connections.HOST_ENV, "pw" + _HEX[5:] * 2),
+}
+
+
+def _real_value(kind):
+    var, secret = SECRETS[kind]
+    if kind == "url password":  # the secret lives inside a URL's user:password@
+        return "https:/" + "/ledger:" + secret + "@langfuse.example"
+    return secret
+
+
+
+
+# target -> (sources it can come from, how to plant the secret in each)
+TARGETS = {
+    "provider": {"env": (ENV["provider"], "{s}"), ".env": (ENV["provider"], "{s}"),
+                 "toml": 'provider = "{s}"\n'},
+    "model small": {"env": (ENV["model_small"], "{s}"), ".env": (ENV["model_small"], "{s}"),
+                    "toml": '[models]\nsmall = "{s}"\n'},
+    "model large": {"env": (ENV["model_large"], "vendor/{s}"),
+                    ".env": (ENV["model_large"], "{s}"),
+                    "toml": 'provider = "openrouter"\n[models]\nlarge = "{s}"\n'},
+    "base url": {"env": (ENV["base_url"], "https://openrouter.ai/api/{s}"),
+                 ".env": (ENV["base_url"], "{s}"),
+                 "toml": 'base_url = "https://openrouter.ai/{s}/v1"\n'},
+    "prices model id": {"toml": '[prices."{s}"]\nprompt = 1\ncompletion = 1\n'},
+    "connections file path": {"env": (connections.CONNECTIONS_FILE_ENV, "{tmp}/{s}.toml"),
+                              ".env": (connections.CONNECTIONS_FILE_ENV, "{tmp}/{s}.toml")},
+    "langfuse host": {"env": (connections.HOST_ENV, "https://langfuse.example/{s}"),
+                      ".env": (connections.HOST_ENV, "https://langfuse.example/{s}")},
+    "api key": {"env": (API_KEY_ENV, "{s}"), ".env": (API_KEY_ENV, "{s}"),
+                "toml": 'api_key = "{s}"\n'},
+}
+MATRIX = [
+    (kind, target, source)
+    for kind in SECRETS for target, sources in TARGETS.items() for source in sources
+    # planting into the secret's own variable is not a paste into another setting
+    if SECRETS[kind][0] != (sources[source][0] if source != "toml" else None)
+]
+
+
+def _plant(local, monkeypatch, kind, target, source, secret, tmp):
+    plan = TARGETS[target][source]
+    if source == "toml":
+        local(toml=plan.format(s=secret))
+        return
+    name, template = plan
+    value = template.format(s=secret, tmp=tmp)
+    if source == "env":
+        monkeypatch.setenv(name, value)
+    else:
+        local(dotenv=f"{name}={value}\n")
+
+
+def _assert_no_surface_shows(secret, monkeypatch, capsys):
+    settings = load_settings()  # never raises
+    surfaces = [repr(settings), str(settings), *settings.problems, *settings.live_gaps]
+    surfaces += [cell for row in connections.describe() for cell in row]
+    assert cli_main(["connections"]) in (0, 2)
+    out = capsys.readouterr()
+    surfaces += [out.out, out.err]
+    assert "Traceback" not in out.err
+    monkeypatch.setenv(ENV_FLAG, "1")
+    for call in (connections.router, connections.require_live):
+        try:
+            call()
+        except LiveLLMDisabled as exc:  # the gate or a config error: both must be masked
+            surfaces.append(str(exc))
+    assert cli_main(["judge", "--live", "--case", CASE]) in (judge.EXIT_ERROR, judge.EXIT_PASS)
+    out = capsys.readouterr()
+    surfaces += [out.out, out.err]
+    assert "Traceback" not in out.err
+    # Use-time transport paths, as if validation had been bypassed.
+    live = connections.Settings(**{**settings.__dict__, "api_key": KEY,
+                                   "spend_cap_usd": Decimal("0.05"),
+                                   "prices": {MODEL: (Decimal(1), Decimal(2))}})
+    echo = json.dumps({"error": {"message": f"bad model {secret}"}}).encode()
+    transport = OpenRouterTransport(live, opener=FakeOpener(http_error(400, echo)))
+    surfaces.append(repr(transport))
+    for model in (MODEL, f"vendor/{secret}"):
+        with pytest.raises((ConnectionConfigError, TransportError)) as exc:
+            transport(model, "x")
+        surfaces.append(str(exc.value))
+    _assert_hidden(*surfaces, secret=secret)
+
+
+@pytest.mark.parametrize("kind, target, source", MATRIX,
+                         ids=[f"{k}|{t}|{s}" for k, t, s in MATRIX])
+def test_a_planted_secret_never_reaches_any_output(local, monkeypatch, capsys, tmp_path,
+                                                   kind, target, source):
+    var, secret = SECRETS[kind]
+    monkeypatch.setenv(var, _real_value(kind))  # the real variable holds the same secret
+    _plant(local, monkeypatch, kind, target, source, secret, tmp_path)
+    _assert_no_surface_shows(secret, monkeypatch, capsys)
+
+
+@pytest.mark.parametrize("kind", list(SECRETS))
+def test_a_secret_pasted_into_two_settings_at_once_is_masked(local, monkeypatch, capsys, kind):
+    var, secret = SECRETS[kind]
+    monkeypatch.setenv(var, _real_value(kind))
+    monkeypatch.setenv(ENV["provider"], secret)
+    local(toml=f'[models]\nlarge = "{secret}"\nsmall = "x-{secret}"\n')
+    assert sum("contains a secret" in p for p in load_settings().problems) >= 2
+    _assert_no_surface_shows(secret, monkeypatch, capsys)
+
+
+@pytest.mark.parametrize("where", ["dotenv", "toml"])
+def test_secrets_from_dotenv_and_the_file_are_masked_too(local, monkeypatch, capsys, where):
+    secret = SECRETS["openrouter key"][1]
+    if where == "dotenv":
+        local(dotenv=f"{connections.SECRET_KEY_ENV}={secret}\n")
+    else:
+        local(toml=f'api_key = "{secret}"\n')
+    monkeypatch.setenv(ENV["model_large"], secret)
+    _assert_no_surface_shows(secret, monkeypatch, capsys)
+
+
+def test_escaped_and_control_character_forms_of_a_secret_are_masked(monkeypatch, capsys):
+    secret = "sk-lf-" + _HEX + "'\\\"" + _HEX[::-1] + "\x07" + _HEX
+    monkeypatch.setenv(connections.SECRET_KEY_ENV, secret)
+    monkeypatch.setenv(ENV["provider"], secret)  # echoed via repr() in "unknown provider ..."
+    _assert_no_surface_shows(secret, monkeypatch, capsys)
+
+
+def test_judge_live_errors_report_and_json_never_show_a_secret(local, monkeypatch, capsys,
+                                                               tmp_path):
+    secret = SECRETS["langfuse secret"][1]
+    local(toml=LIVE_TOML)
+    monkeypatch.setenv(ENV_FLAG, "1")
+    monkeypatch.setenv(API_KEY_ENV, KEY)
+    monkeypatch.setenv(connections.SECRET_KEY_ENV, secret)
+    echo = json.dumps({"error": {"message": f"denied for {secret}"}}).encode()
+    monkeypatch.setattr(connections, "_default_opener", lambda: FakeOpener(http_error(403, echo)))
+    assert cli_main(["judge", "--live", "--case", CASE]) == judge.EXIT_ERROR
+    out = capsys.readouterr()
+    assert "HTTP 403" in out.err and "live run (" in out.err
+    _assert_hidden(out.out, out.err, secret=secret)
+    noisy = {"accuracy": 4, "hallucination": 5, "formatting": 5,
+             "notes": [f"the output quotes {secret}"]}
+    reply = completion(json.dumps(noisy), prompt_tokens=10, completion_tokens=5, cost=0.0001)
+    monkeypatch.setattr(connections, "_default_opener", lambda: FakeOpener(reply))
+    report = tmp_path / "report.json"
+    assert cli_main(["judge", "--live", "--case", CASE, "--json", str(report)]) == judge.EXIT_FAIL
+    out = capsys.readouterr()
+    assert "the output quotes [redacted]" in out.out
+    _assert_hidden(out.out, out.err, report.read_text(), secret=secret)
+
+
+def test_langfuse_client_errors_and_serve_never_show_a_secret(monkeypatch, capsys):
+    import sys as _sys
+    import types
+
+    public, secret = SECRETS["langfuse public"][1], SECRETS["langfuse secret"][1]
+    host = _real_value("url password")
+    password = SECRETS["url password"][1]
+
+    class Langfuse:
+        def __init__(self, **options):
+            raise ValueError(f"rejected {options}")
+
+    monkeypatch.setitem(_sys.modules, "langfuse", types.SimpleNamespace(Langfuse=Langfuse))
+    monkeypatch.setenv(connections.PUBLIC_KEY_ENV, public)
+    monkeypatch.setenv(connections.SECRET_KEY_ENV, secret)
+    monkeypatch.setenv(connections.HOST_ENV, host)
+    with pytest.raises(connections.LangfuseUnavailable) as exc:
+        connections.tracer()
+    assert "cannot start the Langfuse client: ValueError" in str(exc.value)
+    assert cli_main(["serve", "--port", "0"]) == 2
+    err = capsys.readouterr().err
+    for text in (str(exc.value), err):
+        for s in (public, secret, password):
+            _assert_hidden(text, secret=s)
+
+
+def test_an_unexpected_crash_prints_a_masked_traceback(monkeypatch, capsys):
+    import sys as _sys
+
+    secret = SECRETS["openrouter key"][1]
+    monkeypatch.setenv(API_KEY_ENV, secret)
+    monkeypatch.setattr(_sys, "excepthook", _sys.excepthook)  # restored after the test
+    connections.install_masked_excepthook()
+    try:
+        raise RuntimeError(f"boom while using {secret}")
+    except RuntimeError as crash:
+        _sys.excepthook(RuntimeError, crash, crash.__traceback__)
+    err = capsys.readouterr().err
+    assert "Traceback" in err and "RuntimeError: boom while using [redacted]" in err
+    _assert_hidden(err, secret=secret)
+
+
+def test_mask_cuts_only_after_masking_every_secret():
+    secrets = [SECRETS[k][1] for k in SECRETS]
+    text = "x" * 290 + "".join(secrets)
+    shown = connections._mask(text, secrets, 300)
+    assert shown.endswith("...")
+    for s in secrets:
+        _assert_hidden(shown, secret=s)
+    assert connections.mask_lines(f"a {secrets[0]}\nb", {API_KEY_ENV: secrets[0]}) == (
+        "a [redacted]\nb")

@@ -251,7 +251,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(exc.status, _page(f"{exc.status.value} {exc.status.phrase}",
                                          f"<p class='error'>{e(exc)}</p>"))
         except Exception:  # never show a traceback to the client
-            self.log_error("%s", traceback.format_exc())
+            self.log_error("%s", connections.mask_lines(traceback.format_exc()))
             self._send(HTTPStatus.INTERNAL_SERVER_ERROR, _page("500 Internal Server Error", ""))
 
     def _send(self, status: HTTPStatus, body: bytes, location: str | None = None) -> None:
@@ -367,7 +367,7 @@ def run(args: argparse.Namespace) -> int:
         server = make_server(connections.run_store(args.runs_dir), args.host, args.port)
     except (ValueError, OverflowError, OSError, LangfuseUnavailable,
             connections.ConnectionConfigError) as exc:
-        print(f"serve: {exc}", file=sys.stderr)
+        print(connections.mask(f"serve: {exc}"), file=sys.stderr)
         return 2
     host, port = server.server_address[:2]
     print(f"ledgercheck serving on http://{host}:{port}/ (Ctrl-C to stop)", flush=True)
@@ -384,4 +384,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    connections.install_masked_excepthook()
     sys.exit(main())

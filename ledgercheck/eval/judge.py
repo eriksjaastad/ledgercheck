@@ -473,27 +473,39 @@ def _live_judge() -> LiveJudge:
     return LiveJudge()
 
 
+def _masked(value: Any, show: Callable[[Any], str]) -> Any:
+    """``value`` (JSON-shaped) with every string passed through ``show``."""
+    if isinstance(value, str):
+        return show(value)
+    if isinstance(value, list):
+        return [_masked(v, show) for v in value]
+    if isinstance(value, dict):
+        return {k: _masked(v, show) for k, v in value.items()}
+    return value
+
+
 def run(args: argparse.Namespace) -> int:
     """Run the suite for parsed ``args`` and return the exit code."""
+    show = connections.masker()  # everything printed or written goes through it
     live = None
     try:
         cases = select_cases(args.case)
         live = _live_judge() if args.live else None
         report = run_suite(MockJudge() if live is None else live, cases)
     except (LiveLLMDisabled, TransportError, GoldenError, JudgeError) as exc:
-        print(connections.mask(f"judge: {exc}"), file=sys.stderr)
+        print(show(f"judge: {exc}"), file=sys.stderr)
         if live is not None and live.totals is not None:
-            print(connections.mask(f"live run ({live.model}): {live.totals.line()}"),
-                  file=sys.stderr)
+            print(show(f"live run ({live.model}): {live.totals.line()}"), file=sys.stderr)
         return EXIT_ERROR
-    print(format_report(report))
+    print("\n".join(show(line) for line in format_report(report).splitlines()))
     if live is not None and live.totals is not None:
-        print(connections.mask(f"live run ({live.model}): {live.totals.line()}"))
+        print(show(f"live run ({live.model}): {live.totals.line()}"))
     if args.json is not None:
+        document = _masked(report.to_json(), show)  # notes can quote the model's reply
         try:
-            args.json.write_text(json.dumps(report.to_json(), indent=2) + "\n", encoding="utf-8")
+            args.json.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
         except OSError as exc:
-            print(f"judge: cannot write {args.json}: {exc}", file=sys.stderr)
+            print(show(f"judge: cannot write {args.json}: {exc}"), file=sys.stderr)
             return EXIT_ERROR
     return EXIT_PASS if report.passed else EXIT_FAIL
 
@@ -503,4 +515,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    connections.install_masked_excepthook()
     sys.exit(main())

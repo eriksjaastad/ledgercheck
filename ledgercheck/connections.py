@@ -42,8 +42,10 @@ Where settings come from (first match wins)
    ``LEDGERCHECK_CONNECTIONS_FILE``. It may hold the key as well.
 
 ``.env`` and ``connections.local*`` are gitignored; start from the committed
-``.env.example`` and ``connections.example.toml``. The key is never printed,
-logged, put in an error message, a repr, a run record or a trace.
+``.env.example`` and ``connections.example.toml``. No configured secret (the
+OpenRouter key, the Langfuse keys, a password in a URL setting), nor any 8+
+character piece of one, is printed, logged, put in an error message, a repr, a
+report, a run record or a trace, even if it was pasted into another setting.
 
 The spend gate
 --------------
@@ -84,6 +86,7 @@ import stat
 import sys
 import time
 import tomllib
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -91,7 +94,7 @@ from dataclasses import dataclass, field, fields
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from ledgercheck.observability import LangfuseTracer, LangfuseUnavailable, NullTracer, Tracer
 from ledgercheck.run_store import DEFAULT_ROOT, RunStore
@@ -154,42 +157,83 @@ class TransportError(RuntimeError):
     """The provider answered with an error or could not be reached."""
 
 
-_MIN_KEY_RUN = 8
+_MIN_KEY_RUN = 8  # a run of this many characters of a secret is masked
+_MIN_SECRET = 4  # shorter secrets cannot be masked without garbling ordinary text
+
+
+def _sanitize(text: str) -> str:
+    return "".join(c if c.isprintable() else " " for c in text)
+
+
+def _forms(secrets: Iterable[Any]) -> list[str]:
+    """Each secret as it can appear in output: raw, repr()- and JSON-escaped, all with
+    control characters made spaces (as the output will be), longest first."""
+    forms = set()
+    for secret in secrets:
+        if isinstance(secret, str) and len(secret.strip()) >= _MIN_SECRET:
+            secret = secret.strip()
+            forms |= {_sanitize(f) for f in (secret, repr(secret)[1:-1], json.dumps(secret)[1:-1])}
+    return sorted((f for f in forms if len(f) >= _MIN_SECRET), key=len, reverse=True)
+
+
+def _run_at(text: str, i: int, forms: list[str]) -> int:
+    """Length of the secret piece starting at ``text[i]``: a whole short secret, or the
+    longest 8+ character run of a long one; 0 if none."""
+    best = 0
+    for form in forms:
+        if len(form) < _MIN_KEY_RUN:
+            if text.startswith(form, i):
+                best = max(best, len(form))
+            continue
+        n = 0
+        while n < len(form) and i + n < len(text) and text[i:i + n + 1] in form:
+            n += 1
+        if n >= _MIN_KEY_RUN:
+            best = max(best, n)
+    return best
+
+
+def _mask(text: Any, secrets: Iterable[Any], limit: int = MAX_ERROR_CHARS) -> str:
+    """THE masking choke point: every string shown to a person or raised in an error
+    passes through here. Control characters become spaces; every secret, and every run of
+    8+ consecutive characters of one, becomes ``[redacted]``; only then is the result cut
+    to ``limit`` characters, so a cut can never leave a piece of a secret behind."""
+    forms = _forms(secrets)
+    text = str(text)
+    longest = max(map(len, forms), default=0)
+    cut = limit < sys.maxsize and len(text) > limit + longest
+    if cut:  # nothing past here can reach the first `limit` characters of the output
+        text = text[:limit + longest]
+    text = _sanitize(text)
+    out, i = [], 0
+    while i < len(text):
+        n = _run_at(text, i, forms) if forms else 0
+        out.append("[redacted]" if n else text[i])
+        i += n or 1
+    text = "".join(out)
+    return text[:limit] + "..." if cut or len(text) > limit else text
 
 
 def _scrub(text: Any, key: str | None, limit: int = MAX_ERROR_CHARS) -> str:
-    """Outside text made safe for an error message, in this order: control characters
-    become spaces; the key, and any run of 8+ consecutive characters of it, is masked;
-    only then is the result cut to ``limit`` characters, so a cut can never leave part
-    of the key behind."""
-    text = "".join(c if c.isprintable() else " " for c in str(text))
-    if key:
-        text = text.replace(key, "[redacted]")
-        out, i = [], 0
-        while i < len(text):
-            n = 0
-            while i + n < len(text) and text[i:i + n + 1] in key:
-                n += 1
-            if n >= _MIN_KEY_RUN:
-                out.append("[redacted]")
-                i += n
-            else:
-                out.append(text[i])
-                i += 1
-        text = "".join(out)
-    return text if len(text) <= limit else text[:limit] + "..."
-
-
-def _mask(text: Any, secrets: tuple[str | None, ...], limit: int) -> str:
-    """``_scrub`` against each secret (cutting only at the end)."""
-    for secret in secrets:
-        text = _scrub(text, secret, limit=sys.maxsize)
-    return _scrub(text, None, limit)
+    """``_mask`` with a single secret."""
+    return _mask(text, (key,), limit)
 
 
 def _holds_secret(text: str, secret: str | None) -> bool:
     """``text`` contains ``secret`` or an 8+ character piece of it."""
-    return bool(secret) and _scrub(text, secret, sys.maxsize) != _scrub(text, None, sys.maxsize)
+    return bool(secret) and _mask(text, (secret,), sys.maxsize) != _sanitize(text)
+
+
+def _url_userinfo(url: Any) -> list[str]:
+    """The user and password in a URL (raw and percent-decoded), if it has any."""
+    if not isinstance(url, str):
+        return []
+    try:
+        parts = urllib.parse.urlsplit(url.strip())
+        found = [parts.username, parts.password]
+    except ValueError:  # e.g. a broken IPv6 host: no userinfo to find
+        found = []
+    return [v for x in found if x for v in (x, urllib.parse.unquote(x))]
 
 
 def _shown(value: Any) -> str:
@@ -314,6 +358,24 @@ class _Sources:
     def blank(self, name: str) -> bool:
         return any(v is not None and not v.strip() for v in (self.env.get(name),
                                                              self.dotenv.get(name)))
+
+
+SECRET_VARS = (API_KEY_ENV, SECRET_KEY_ENV, PUBLIC_KEY_ENV)
+URL_VARS = (SETTINGS["base_url"][0], HOST_ENV)  # a user:password@ in these is a secret too
+
+
+def _secrets(src: _Sources) -> tuple[str, ...]:
+    """Every secret the configuration knows, from every source (not only the one that
+    wins): the OpenRouter key, both Langfuse keys, and any user or password in a URL
+    setting. Masked everywhere, even when a value failed validation."""
+    found: list[Any] = []
+    for values in (src.env, src.dotenv):
+        found += [values.get(name) for name in SECRET_VARS]
+        for name in URL_VARS:
+            found += _url_userinfo(values.get(name))
+    found.append(src.config.get("api_key"))
+    found += _url_userinfo(src.config.get("base_url"))
+    return tuple(dict.fromkeys(v.strip() for v in found if isinstance(v, str) and v.strip()))
 
 
 def _decimal(value: Any, what: str, maximum: Decimal) -> Decimal:
@@ -459,11 +521,17 @@ class Settings:
     api_key_blank: bool = False
     problems: tuple[str, ...] = ()  # invalid settings; only a live run refuses on them
     live_gaps: tuple[str, ...] = ()  # what the configured live provider still needs
+    # Every secret in the configuration (see ``_secrets``): what all output is masked with.
+    secrets: tuple[str, ...] = field(default=(), repr=False, compare=False)
+
+    def mask(self, text: Any, limit: int = sys.maxsize) -> str:
+        """``text`` with every secret of this configuration masked (see ``_mask``)."""
+        return _mask(text, (*self.secrets, self.api_key), limit)
 
     def __repr__(self) -> str:
         shown = ", ".join(f"{f.name}={getattr(self, f.name)!r}" for f in fields(self)
-                          if f.name != "api_key")
-        return _scrub(f"Settings({shown})", self.api_key, limit=sys.maxsize)
+                          if f.name not in ("api_key", "secrets"))
+        return self.mask(f"Settings({shown})")
 
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
@@ -503,14 +571,17 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     prices = _parsed(problems, _prices, src.config.get("prices", {}), {})
     if provider not in PROVIDERS:
         problems.append(f"unknown provider {_shown(provider)}: use one of {list(PROVIDERS)}")
-    # A key pasted into another setting would be sent as a model id or URL: refuse it.
+    # A secret pasted into another setting would be sent as a model id or URL: refuse it.
+    secrets = _secrets(src)
+    strong = [secret for secret in secrets if len(secret) >= _MIN_KEY_RUN]
     pasted = [("provider", raw["provider"]), ("model small", raw["model_small"]),
               ("model large", raw["model_large"]), ("base_url", raw["base_url"]),
               (CONNECTIONS_FILE_ENV, str(src.config_path or ""))]
     pasted += [("a [prices] model id", model) for model in prices]
-    problems += [f"{name} contains your API key (or part of it); it was probably pasted into "
-                 "the wrong setting" for name, value in pasted
-                 if isinstance(value, str) and isinstance(key, str) and _holds_secret(value, key)]
+    problems += [f"{name} contains a secret (your API key, a Langfuse key or a URL password, or "
+                 "part of one); it was probably pasted into the wrong setting"
+                 for name, value in pasted
+                 if isinstance(value, str) and any(_holds_secret(value, x) for x in strong)]
     gaps = _live_gaps(provider, key, cap, raw["spend_cap_usd"],
                       {tier: model for tier, model in models.items() if model}, prices)
     return Settings(
@@ -526,8 +597,9 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         api_key=key,
         api_key_blank=src.blank(API_KEY_ENV),
         # Values are echoed in problems, so a key pasted into the wrong setting is masked.
-        problems=tuple(_scrub(problem, key, limit=500) for problem in problems),
-        live_gaps=tuple(_scrub(gap, key, limit=500) for gap in gaps),
+        problems=tuple(_mask(problem, (*secrets, key), 500) for problem in problems),
+        live_gaps=tuple(_mask(gap, (*secrets, key), 500) for gap in gaps),
+        secrets=secrets,
     )
 
 
@@ -664,6 +736,7 @@ class OpenRouterTransport:
                 "a live run needs a spend cap: set LEDGERCHECK_SPEND_CAP_USD or spend_cap_usd "
                 "in connections.local.toml (USD, > 0)")
         self._key = settings.api_key
+        self._secrets = (*settings.secrets, settings.api_key)  # what every message is masked with
         self.url = f"{settings.base_url}/chat/completions"
         self._max_tokens, self._prices = settings.max_tokens, settings.prices
         self._open = _default_opener() if opener is None else opener
@@ -671,14 +744,14 @@ class OpenRouterTransport:
         self.totals = Totals(settings.spend_cap_usd)
 
     def __repr__(self) -> str:
-        return _scrub(f"OpenRouterTransport(url={self.url!r}, totals={self.totals!r})",
-                      self._key, limit=sys.maxsize)
+        return _mask(f"OpenRouterTransport(url={self.url!r}, totals={self.totals!r})",
+                     self._secrets, limit=sys.maxsize)
 
     def __call__(self, model: str, prompt: str) -> str:
         if model not in self._prices:
-            raise ConnectionConfigError(_scrub(
+            raise ConnectionConfigError(_mask(
                 f'no price for {model!r}: add [prices."{model}"] prompt = ..., completion = ... '
-                "(USD per million tokens) to connections.local.toml", self._key, limit=500))
+                "(USD per million tokens) to connections.local.toml", self._secrets, 500))
         prompt_price, completion_price = self._prices[model]
         messages = [{"role": "user", "content": prompt}]
         bound = max_prompt_tokens(messages)
@@ -726,7 +799,7 @@ class OpenRouterTransport:
 
     def _error(self, text: str) -> TransportError:
         """The only way the transport builds an error: the text is always scrubbed."""
-        return TransportError(_scrub(text, self._key))
+        return TransportError(_mask(text, self._secrets))
 
     def _post(self, payload: Mapping[str, Any]) -> Any:
         """The parsed JSON reply. ``_PossiblyBilled`` once the request may have been
@@ -848,8 +921,8 @@ def router(env: Mapping[str, str] | None = None, *, opener: Opener | None = None
     if settings.provider == "openrouter":
         transport = OpenRouterTransport(require_live(env), opener=opener, sleep=sleep)
         return routing.OpenRouterRouter(env, transport=transport)
-    raise ConnectionConfigError(_scrub(f"unknown provider {_shown(settings.provider)}: use one "
-                                       f"of {list(PROVIDERS)}", settings.api_key, limit=500))
+    raise ConnectionConfigError(settings.mask(f"unknown provider {_shown(settings.provider)}: "
+                                              f"use one of {list(PROVIDERS)}", 500))
 
 
 def tracer(env: Mapping[str, str] | None = None) -> Tracer:
@@ -876,7 +949,13 @@ def _langfuse_tracer(public: str, secret: str, host: str | None) -> LangfuseTrac
     options = {"public_key": public, "secret_key": secret}
     if host:
         options["host"] = host
-    return LangfuseTracer(Langfuse(**options))
+    try:
+        client = Langfuse(**options)
+    except Exception as exc:  # an SDK error can quote its options: re-raise it masked
+        raise LangfuseUnavailable(_mask(
+            f"cannot start the Langfuse client: {type(exc).__name__}: {exc}",
+            (public, secret, *_url_userinfo(host)))) from None
+    return LangfuseTracer(client)
 
 
 def run_store(root: str | os.PathLike[str] | None = None) -> RunStore:
@@ -895,16 +974,38 @@ def _file_state(path: Path) -> str:
     return state
 
 
-def _display_secrets(settings: Settings, src: _Sources) -> tuple[str | None, ...]:
-    return settings.api_key, src.value(SECRET_KEY_ENV)
+def masker(env: Mapping[str, str] | None = None,
+           limit: int = sys.maxsize) -> Callable[[Any], str]:
+    """A function that makes text safe to print: control characters removed, and every
+    secret of the configuration (see ``_secrets``) masked. Resolve it once per command
+    and pass everything that command prints through it."""
+    secrets = _secrets(_Sources(env))
+    return lambda text: _mask(text, secrets, limit)
 
 
 def mask(text: Any, env: Mapping[str, str] | None = None, limit: int = 2000) -> str:
-    """``text`` safe to print: no control characters, and the resolved API key and Langfuse
-    secret key (and any 8+ character piece of them) masked. Use it for anything that shows
-    a setting-derived value, such as a model id."""
-    return _mask(text, _display_secrets(load_settings(env), _Sources(env, with_file=False)),
-                 limit)
+    """``masker(env, limit)(text)``, for a one-off message."""
+    return masker(env, limit)(text)
+
+
+def mask_lines(text: Any, env: Mapping[str, str] | None = None) -> str:
+    """Multi-line text (a report, a traceback) masked line by line, newlines kept."""
+    show = masker(env)
+    return "\n".join(show(line) for line in str(text).splitlines())
+
+
+def install_masked_excepthook(env: Mapping[str, str] | None = None) -> None:
+    """Make an unexpected crash print a masked traceback (still exit 1)."""
+
+    def hook(kind: type[BaseException], exc: BaseException, tb: Any) -> None:
+        text = "".join(traceback.format_exception(kind, exc, tb))
+        try:
+            shown = mask_lines(text, env)
+        except Exception:  # never fall back to the unmasked text
+            shown = f"ledgercheck: unexpected {kind.__name__} (details withheld)"
+        print(shown, file=sys.stderr)
+
+    sys.excepthook = hook
 
 
 def describe(env: Mapping[str, str] | None = None) -> list[tuple[str, str, str]]:
@@ -913,7 +1014,6 @@ def describe(env: Mapping[str, str] | None = None) -> list[tuple[str, str, str]]
     Every cell is masked: a key pasted into any setting never shows.
     """
     s, src = load_settings(env), _Sources(env, with_file=False)
-    secrets = _display_secrets(s, src)
     key = ("missing" if s.api_key is None
            else f"set (from {s.sources['api_key']})")
     if s.api_key is None and s.api_key_blank:
@@ -937,8 +1037,7 @@ def describe(env: Mapping[str, str] | None = None) -> list[tuple[str, str, str]]
         ("tracing", "langfuse" if langfuse else "off", ""),
         ("config file", config, ""),
     ]
-    return [(name, _mask(value, secrets, 200), _mask(source, secrets, 200))
-            for name, value, source in rows]
+    return [(name, s.mask(value, 200), s.mask(source, 200)) for name, value, source in rows]
 
 
 def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.ArgumentParser:
@@ -953,13 +1052,14 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
 def run(args: argparse.Namespace) -> int:
     """Print the resolved settings; exit 2 if a setting is invalid or the configured live
     provider is missing something it needs, else 0."""
-    for name, value, source in describe():  # already masked
-        print(f"{name:<12} {value:<44} {source}".rstrip())
     settings = load_settings()
+    for name, value, source in describe():  # already masked
+        print(settings.mask(f"{name:<12} {value:<44} {source}".rstrip()))
     for problem in settings.problems:
-        print(f"connections: {problem}", file=sys.stderr)
+        print(settings.mask(f"connections: {problem}"), file=sys.stderr)
     for gap in settings.live_gaps:
-        print(f"connections: provider {settings.provider} needs {gap}", file=sys.stderr)
+        print(settings.mask(f"connections: provider {settings.provider} needs {gap}"),
+              file=sys.stderr)
     return 2 if settings.problems or settings.live_gaps else 0
 
 
@@ -968,4 +1068,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    install_masked_excepthook()
     sys.exit(main())

@@ -74,6 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    connections.install_masked_excepthook()  # an unexpected crash never prints a secret
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "judge":
