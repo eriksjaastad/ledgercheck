@@ -29,7 +29,7 @@ Offline
 -------
 Runs use the fixture path: no LLM call and no network. Tracing is
 ``NullTracer`` unless ``LANGFUSE_PUBLIC_KEY`` and ``LANGFUSE_SECRET_KEY`` are
-set (``ledgercheck.observability``); keys set without the SDK fail at start.
+set (``ledgercheck.connections``); keys set without the SDK fail at start.
 
 Routes
 ------
@@ -75,7 +75,8 @@ from urllib.parse import parse_qs, urlsplit
 from ledgercheck.agents.approval import resume_run, run_pipeline
 from ledgercheck.fixtures_loader import FixtureCase, load_cases
 from ledgercheck.models import Invoice
-from ledgercheck.observability import LangfuseUnavailable, Tracer, tracer_from_env
+from ledgercheck import connections
+from ledgercheck.observability import LangfuseUnavailable, Tracer
 from ledgercheck.run_store import DEFAULT_ROOT, RunNotFound, RunRecord, RunStore, Stage
 
 DEFAULT_HOST = "127.0.0.1"
@@ -140,7 +141,7 @@ def make_server(
     store: RunStore, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, tracer: Tracer | None = None
 ) -> LedgerServer:
     """A bound, not yet serving, server; a non-loopback ``host`` raises ``ValueError``."""
-    return LedgerServer((host, port), store, tracer_from_env() if tracer is None else tracer)
+    return LedgerServer((host, port), store, connections.tracer() if tracer is None else tracer)
 
 
 def check_magnitude(field: str, value: str) -> None:
@@ -363,8 +364,9 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
 def run(args: argparse.Namespace) -> int:
     """Serve until Ctrl-C (exit 0); a refused host or a bind error exits 2."""
     try:
-        server = make_server(RunStore(args.runs_dir), args.host, args.port)
-    except (ValueError, OverflowError, OSError, LangfuseUnavailable) as exc:
+        server = make_server(connections.run_store(args.runs_dir), args.host, args.port)
+    except (ValueError, OverflowError, OSError, LangfuseUnavailable,
+            connections.ConnectionConfigError) as exc:
         print(f"serve: {exc}", file=sys.stderr)
         return 2
     host, port = server.server_address[:2]

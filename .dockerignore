@@ -3,6 +3,7 @@
 venv
 .env
 .env.*
+connections.local*
 .scratch
 .agent
 .terraform

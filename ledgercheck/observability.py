@@ -8,9 +8,10 @@ fixture path makes no LLM call, so there is nothing to count.
 
 Default: off, nothing sent
 --------------------------
-``tracer_from_env()`` (what ``run_pipeline`` uses when it is given no
+``connections.tracer()`` (what ``run_pipeline`` uses when it is given no
 ``tracer``) returns ``NullTracer`` unless both ``LANGFUSE_PUBLIC_KEY`` and
-``LANGFUSE_SECRET_KEY`` are set and non-blank (not empty or whitespace only).
+``LANGFUSE_SECRET_KEY`` are set and non-blank (not empty or whitespace only),
+in the environment or in a local ``.env`` (see ``ledgercheck.connections``).
 ``NullTracer`` does nothing: no I/O, no network, no import of the
 ``langfuse`` SDK. With one key set and the other missing or blank, tracing
 stays off.
@@ -20,18 +21,19 @@ Enabling Langfuse later
 1. Create a project in Langfuse (free or paid) and copy its API keys.
 2. Install the optional extra: ``pip install 'ledgercheck[langfuse]'``.
    ``dependencies`` stays empty; the SDK only comes in through this extra.
-3. Export ``LANGFUSE_PUBLIC_KEY`` and ``LANGFUSE_SECRET_KEY``. Optionally set
+3. Set ``LANGFUSE_PUBLIC_KEY`` and ``LANGFUSE_SECRET_KEY``. Optionally set
    ``LANGFUSE_HOST`` to a self-hosted or regional Langfuse URL; unset or blank
    means the SDK's default cloud host.
 
 Every pipeline run then becomes a trace named ``ledgercheck.pipeline``
 (metadata: case id, run id, outcome) with spans ``intake``, ``policy`` and
-``approval``. ``LangfuseTracer`` targets the v3 SDK API (``start_span``,
+``approval``. ``LangfuseTracer`` wraps a client built by
+``ledgercheck.connections`` and targets the v3 SDK API (``start_span``,
 ``update``, ``update_trace``, ``end``); the SDK batches and sends in the
 background and flushes at exit. Spans carry usage in their metadata until a
 live LLM step reports it as a Langfuse generation.
 
-Keys set, SDK missing: ``tracer_from_env()`` raises ``LangfuseUnavailable``
+Keys set, SDK missing: ``connections.tracer()`` raises ``LangfuseUnavailable``
 (so does every ``run_pipeline`` call that uses the default tracer). Setting
 the keys asks for traces, so a silent fallback would hide a misconfiguration.
 Install the extra or unset the keys.
@@ -42,18 +44,13 @@ Tracer errors are not swallowed: an exception from a tracer propagates out of
 
 from __future__ import annotations
 
-import os
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from decimal import Decimal
-from functools import lru_cache
 from types import MappingProxyType
 from typing import Any, Iterator, Mapping, Protocol, runtime_checkable
 
-PUBLIC_KEY_ENV = "LANGFUSE_PUBLIC_KEY"
-SECRET_KEY_ENV = "LANGFUSE_SECRET_KEY"
-HOST_ENV = "LANGFUSE_HOST"
 PIPELINE_TRACE = "ledgercheck.pipeline"
 
 
@@ -130,24 +127,10 @@ class NullTracer:
 
 
 class LangfuseTracer:
-    """Sends traces to Langfuse; imports the SDK only when constructed.
+    """Sends traces to Langfuse through a client built by ``ledgercheck.connections``."""
 
-    Raises ``LangfuseUnavailable`` if the ``langfuse`` package is missing.
-    Keys are passed to the SDK client and not kept or echoed here.
-    """
-
-    def __init__(self, public_key: str, secret_key: str, host: str | None = None) -> None:
-        try:
-            from langfuse import Langfuse  # pyright: ignore[reportMissingImports]
-        except ImportError as exc:
-            raise LangfuseUnavailable(
-                f"{PUBLIC_KEY_ENV} and {SECRET_KEY_ENV} are set but the langfuse SDK is "
-                "not installed: pip install 'ledgercheck[langfuse]', or unset the keys"
-            ) from exc
-        options = {"public_key": public_key, "secret_key": secret_key}
-        if host:
-            options["host"] = host
-        self._client = Langfuse(**options)
+    def __init__(self, client: Any) -> None:
+        self._client = client
 
     def start_trace(self, name: str, metadata: Mapping[str, str]) -> Any:
         return self._client.start_span(name=name, metadata=dict(metadata))
@@ -178,29 +161,6 @@ def _span_metadata(record: SpanRecord) -> dict[str, Any]:
 
 def _level(error: str | None) -> dict[str, str]:
     return {} if error is None else {"level": "ERROR", "status_message": error}
-
-
-def _stated(env: Mapping[str, str], name: str) -> str | None:
-    value = env.get(name)
-    return value if value is not None and value.strip() else None
-
-
-def tracer_from_env(env: Mapping[str, str] | None = None) -> Tracer:
-    """``LangfuseTracer`` when both keys are non-blank, else ``NullTracer``.
-
-    ``env`` defaults to ``os.environ``. One client is built per distinct
-    (public key, secret key, host), not per call.
-    """
-    env = os.environ if env is None else env
-    public, secret = _stated(env, PUBLIC_KEY_ENV), _stated(env, SECRET_KEY_ENV)
-    if public is None or secret is None:
-        return NullTracer()
-    return _langfuse_tracer(public, secret, _stated(env, HOST_ENV))
-
-
-@lru_cache(maxsize=4)
-def _langfuse_tracer(public: str, secret: str, host: str | None) -> LangfuseTracer:
-    return LangfuseTracer(public, secret, host)
 
 
 @dataclass

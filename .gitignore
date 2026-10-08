@@ -10,6 +10,7 @@ venv/
 .env
 .env.*
 !.env.example
+connections.local*
 .DS_Store
 .agent/
 .scratch/
