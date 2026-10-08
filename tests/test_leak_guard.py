@@ -138,15 +138,39 @@ def test_pre_push_scans_every_commit_in_the_pushed_range(key_then_removed):
     assert guard(root, "--pre-push").returncode == 0  # nothing to push
 
 
+def test_a_new_branch_is_checked_against_the_destination_remote_only(key_then_removed):
+    root, base, _, fix = key_then_removed
+    git(root, "remote", "add", "private", "https://private.invalid/x.git")  # never fetched
+    git(root, "remote", "add", "public", "https://public.invalid/x.git")
+    git(root, "update-ref", "refs/remotes/private/main", fix)  # private already has it all
+    git(root, "update-ref", "refs/remotes/public/main", base)  # public has only base
+    unknown_tip = "1234567" * 5 + "89abc"  # a remote sha we never fetched
+
+    def push(remote, remote_sha=ZERO):
+        return guard(root, "--pre-push", f"--remote={remote}",
+                     stdin=pre_push(fix, remote_sha)).returncode
+
+    assert push("private") == 0  # nothing new for private
+    assert push("public") == 1  # the leak commit is on private, not on public
+    assert push("private", unknown_tip) == 0  # unknown tip: private's tracking refs
+    assert push("public", unknown_tip) == 1
+    for destination in ("https://public.invalid/x.git", "nonesuch", "priv*", ""):
+        assert push(destination) == 1  # URL or unknown name: scan everything
+        assert push(destination, unknown_tip) == 1
+    assert guard(root, "--pre-push", stdin=pre_push(fix)).returncode == 1  # no --remote
+
+
 def test_the_hook_scans_what_git_says_is_being_pushed(key_then_removed):
     root, base, _, fix = key_then_removed
     hook = ROOT / ".githooks" / "pre-push"
     git(root, "update-ref", "refs/remotes/origin/main", base)  # the remote already has base
     (root / "scripts").mkdir()
     (root / "scripts" / "leak_guard.py").write_text(GUARD.read_text())  # left uncommitted
-    run = subprocess.run(["sh", str(hook), "origin", "x"], input=pre_push(fix, base), cwd=root,
-                         capture_output=True, text=True, timeout=60)
-    assert run.returncode == 1 and "OpenRouter key" in run.stderr
+    for args, stdin in ((["origin", "x"], pre_push(fix, base)),
+                        (["https://public.invalid/x.git"] * 2, pre_push(fix))):
+        run = subprocess.run(["sh", str(hook), *args], input=stdin, cwd=root,
+                             capture_output=True, text=True, timeout=60)
+        assert run.returncode == 1 and "OpenRouter key" in run.stderr
 
 
 def test_uncommitted_files_are_not_scanned(tmp_path):
@@ -164,7 +188,8 @@ def test_not_a_git_checkout_is_an_error(tmp_path):
 
 def test_pre_push_hook_passes_stdin_to_the_guard_and_is_executable_in_git():
     hook = (ROOT / ".githooks" / "pre-push").read_text(encoding="utf-8")
-    assert 'exec python3 "$root/scripts/leak_guard.py" --root "$root" --pre-push' in hook
+    assert ('exec python3 "$root/scripts/leak_guard.py" --root "$root" --pre-push '
+            '--remote="$1"') in hook
     done = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-s", ".githooks/pre-push"],
                           capture_output=True, text=True, timeout=60)
     assert done.stdout.startswith("100755 "), done.stdout
