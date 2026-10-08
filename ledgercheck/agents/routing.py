@@ -57,8 +57,8 @@ Planned:
 
 Runbook: context-window failures
 --------------------------------
-Today: the transport estimates prompt tokens only to bound the worst-case cost
-of a call (see the spend cap in ``ledgercheck.connections``). The judge's
+Today: the transport sizes a prompt (an upper bound on its tokens) only to
+cap the worst-case cost of a call (see ``ledgercheck.connections``). The judge's
 prompts are small, and nothing else is sent.
 
 Planned:

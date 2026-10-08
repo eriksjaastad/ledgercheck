@@ -369,7 +369,40 @@ def test_unreachable_or_odd_responses_are_transport_errors(reply):
         OpenRouterTransport(live_settings(), opener=FakeOpener(reply))(MODEL, "x")
 
 
-@pytest.mark.parametrize("cost", [-5, "NaN", 1e400, float("nan"), True, "-0.01", "1e400x", [1]])
+def test_prompt_bound_holds_for_text_that_tokenizes_badly():
+    prompt = "}{][)(;:!?.,'\"`~^|\\/" * 40 + "€✓🧾" * 20  # about one token per byte, or worse
+    messages = [{"role": "user", "content": prompt}]
+    bound = connections.max_prompt_tokens(messages)
+    assert bound >= len(prompt.encode("utf-8")) + len("user")
+    # A cap exactly at the worst case admits the call; the worst case really is worst.
+    cap = (bound * 1 + 100 * 2) / Decimal(1_000_000)
+    usage = {"prompt_tokens": len(prompt.encode("utf-8")), "completion_tokens": 100}
+    opener = FakeOpener(completion(**usage))
+    transport = OpenRouterTransport(live_settings(**{ENV["spend_cap_usd"]: str(cap)}),
+                                    opener=opener)
+    transport(MODEL, prompt)
+    assert transport.totals.cost_usd <= transport.totals.cap_usd
+    with pytest.raises(SpendCapReached):
+        transport(MODEL, prompt)
+    assert len(opener.requests) == 1
+
+
+def test_a_billed_reply_with_bad_choices_still_counts_against_the_cap():
+    reply = {"usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.003}}
+    transport = OpenRouterTransport(live_settings(), opener=FakeOpener(reply, {"choices": []}))
+    with pytest.raises(TransportError, match="unexpected response shape"):
+        transport(MODEL, "x")
+    t = transport.totals
+    assert (t.calls, t.prompt_tokens, t.completion_tokens, t.cost_usd) == (
+        1, 10, 5, Decimal("0.003"))
+    with pytest.raises(TransportError):
+        transport(MODEL, "x")  # no usage at all: charged at the worst case
+    bound = connections.max_prompt_tokens([{"role": "user", "content": "x"}])
+    assert (t.calls, t.prompt_tokens, t.completion_tokens) == (2, 10 + bound, 105)
+
+
+@pytest.mark.parametrize("cost", [-5, "NaN", 1e400, float("nan"), True, "-0.01", "1e400x", [1],
+                                  "1e99999999999999999999999999", "1e1000000", 10 ** 12])
 def test_invalid_reported_cost_falls_back_to_tokens_times_prices(cost):
     opener = FakeOpener(completion(prompt_tokens=1000, completion_tokens=500, cost=cost),
                         completion(prompt_tokens=1000, completion_tokens=500, cost=cost))
@@ -385,7 +418,8 @@ def test_invalid_token_counts_are_charged_at_the_worst_case():
     transport = OpenRouterTransport(live_settings(), opener=FakeOpener(completion(**usage)))
     transport(MODEL, "x")
     t = transport.totals
-    assert (t.prompt_tokens, t.completion_tokens) == (connections.estimate_tokens("x"), 100)
+    bound = connections.max_prompt_tokens([{"role": "user", "content": "x"}])
+    assert (t.prompt_tokens, t.completion_tokens) == (bound, 100)
     assert t.cost_usd == (t.prompt_tokens * 1 + 100 * 2) / Decimal(1_000_000)
 
 

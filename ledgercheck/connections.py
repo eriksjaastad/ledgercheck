@@ -50,8 +50,9 @@ The spend gate
 Live calls need provider ``openrouter``, a key, and ``LEDGERCHECK_LLM=1`` in the
 process environment. The flag is read from the environment only, never from
 a file, so nothing spends by accident. Each live run also has a hard cap:
-before every call the worst case (estimated prompt tokens plus
-``max_tokens``, at your prices) must fit in what is left of
+before every call the worst case (an upper bound on prompt tokens, one per
+UTF-8 byte of the messages plus a fixed overhead, plus ``max_tokens``, at
+your prices) must fit in what is left of
 ``spend_cap_usd``, or the call is refused. After the call its actual cost
 (the provider's reported cost, else tokens times prices) is added. HTTP 429
 is retried up to 3 times, honouring ``Retry-After`` (capped at 30 s).
@@ -69,8 +70,9 @@ nothing. The run store's file I/O stays in ``ledgercheck.run_store``; this
 module only picks its root.
 
 Before you push, enable the leak guard hook once per clone:
-``git config core.hooksPath .githooks``. It runs ``scripts/leak_guard.py``,
-which fails if a tracked file looks like a key or a local config file.
+``git config core.hooksPath .githooks``. It runs ``scripts/leak_guard.py``
+on the commits being pushed and stops the push if any of them adds something
+that looks like a key, or a local ``.env`` or ``connections.local*`` file.
 """
 
 from __future__ import annotations
@@ -353,9 +355,19 @@ def env_flag(name: str) -> bool:
 # --- LLM transport -----------------------------------------------------------
 
 
-def estimate_tokens(text: str) -> int:
-    """A deliberately high prompt-token estimate: UTF-8 bytes / 3, plus message overhead."""
-    return math.ceil(len(text.encode("utf-8")) / 3) + 16
+MESSAGE_OVERHEAD_TOKENS = 16  # role and chat-template markers, per message
+
+
+def max_prompt_tokens(messages: list[Mapping[str, str]]) -> int:
+    """An upper bound on the prompt tokens ``messages`` can cost.
+
+    Byte-level tokenizers emit at most one token per UTF-8 byte, so the bound
+    is the byte length of every message's role and content plus a fixed
+    per-message overhead. It is loose on purpose: the cap must hold for any
+    text, including punctuation-heavy text that tokenizes badly.
+    """
+    return sum(len(m["role"].encode("utf-8")) + len(m["content"].encode("utf-8"))
+               + MESSAGE_OVERHEAD_TOKENS for m in messages)
 
 
 @dataclass
@@ -383,9 +395,10 @@ class OpenRouterTransport:
 
     OpenRouter returns ``usage`` (``prompt_tokens``, ``completion_tokens`` and
     ``cost`` in USD) on every non-streaming response; that cost is what is
-    added to ``totals``. When the cost or a token count is missing or invalid
-    (negative, not a number, infinite) the worst case is charged instead:
-    estimated prompt tokens, ``max_tokens`` for the reply, times your prices.
+    added to ``totals``, even when the reply itself turns out to be unusable.
+    When the cost or a token count is missing or invalid (negative, not a
+    number, infinite, absurdly large) the worst case is charged instead:
+    ``max_prompt_tokens``, ``max_tokens`` for the reply, times your prices.
 
     Build one per run (``totals`` is that run's spend). ``opener`` and
     ``sleep`` default to ``urllib.request.urlopen`` and ``time.sleep``; tests
@@ -420,9 +433,10 @@ class OpenRouterTransport:
                 f'no price for {model!r}: add [prices."{model}"] prompt = ..., completion = ... '
                 "(USD per million tokens) to connections.local.toml")
         prompt_price, completion_price = self._prices[model]
-        estimate = estimate_tokens(prompt)
+        messages = [{"role": "user", "content": prompt}]
+        bound = max_prompt_tokens(messages)
         try:
-            worst = (estimate * prompt_price + self._max_tokens * completion_price) / _MTOK
+            worst = (bound * prompt_price + self._max_tokens * completion_price) / _MTOK
             left = self.totals.cap_usd - self.totals.cost_usd
             refuse = not (left.is_finite() and worst <= left)  # fail closed on NaN/infinity
         except ArithmeticError:  # decimal errors included
@@ -430,18 +444,14 @@ class OpenRouterTransport:
         if refuse:
             raise SpendCapReached(f"spend cap: the next call could cost up to ${worst:.6f} but "
                                   f"${left:.6f} of ${self.totals.cap_usd} is left")
-        data = self._post({"model": model, "messages": [{"role": "user", "content": prompt}],
-                           "max_tokens": self._max_tokens})
-        try:
-            reply = data["choices"][0]["message"]["content"]
-            usage = data.get("usage") or {}
-        except (KeyError, IndexError, TypeError, AttributeError):
-            raise TransportError(f"unexpected response shape from {self.url}") from None
+        data = self._post({"model": model, "messages": messages, "max_tokens": self._max_tokens})
+        # Count the call before looking at the reply: a 200 response is billed
+        # even when its choices are missing or malformed. Missing or invalid
+        # usage is charged at the worst case.
+        usage = data.get("usage") if isinstance(data, Mapping) else None
         if not isinstance(usage, Mapping):
             usage = {}
-        # Missing or invalid usage is charged at the worst case: estimated prompt
-        # tokens, max_tokens for the reply, and tokens times prices for the cost.
-        p_tok = _count(usage.get("prompt_tokens"), estimate)
+        p_tok = _count(usage.get("prompt_tokens"), bound)
         c_tok = _count(usage.get("completion_tokens"), self._max_tokens)
         cost = _reported_cost(usage.get("cost"))
         if cost is None:
@@ -451,6 +461,10 @@ class OpenRouterTransport:
         totals.prompt_tokens += p_tok
         totals.completion_tokens += c_tok
         totals.cost_usd += cost
+        try:
+            reply = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError):
+            raise TransportError(f"unexpected response shape from {self.url}") from None
         if not isinstance(reply, str):
             raise TransportError(f"no text reply from {self.url}")
         return reply
@@ -491,18 +505,26 @@ def _count(value: Any, fallback: int) -> int:
 
 
 _COST = re.compile(r"\d+(?:\.\d*)?(?:[eE][+-]?\d+)?")
+MAX_REPORTED_COST = Decimal(10) ** 9  # USD per call; anything larger is not a real cost
 
 
 def _reported_cost(value: Any) -> Decimal | None:
-    """A reported USD cost if it is a finite number >= 0, else ``None``.
+    """A reported USD cost if it is a plausible finite number >= 0, else ``None``.
 
-    Rejects bools, negatives, NaN and infinity (JSON's ``1e400`` arrives as
-    infinity), so a bad value can never widen the budget.
+    Rejects bools, negatives, NaN, infinity (JSON's ``1e400`` arrives as
+    infinity) and exponents too large to add up, so a bad value can never
+    widen the budget or break the cap arithmetic.
     """
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
         return None
     text = str(value).strip()
-    return Decimal(text) if _COST.fullmatch(text) else None
+    if not _COST.fullmatch(text):
+        return None
+    try:
+        cost = Decimal(text)
+    except InvalidOperation:  # an exponent beyond what Decimal can hold: too large
+        cost = MAX_REPORTED_COST + 1
+    return cost if cost <= MAX_REPORTED_COST else None
 
 
 def _http_message(exc: urllib.error.HTTPError, url: str) -> str:
