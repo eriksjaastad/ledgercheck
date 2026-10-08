@@ -363,11 +363,62 @@ def test_other_http_errors_are_not_retried_and_never_show_the_key():
 
 @pytest.mark.parametrize("reply", [
     urllib.error.URLError("no route"), {"choices": []}, {"choices": [{"message": {}}]},
-    completion(prompt_tokens="many"),
 ])
 def test_unreachable_or_odd_responses_are_transport_errors(reply):
     with pytest.raises(TransportError):
         OpenRouterTransport(live_settings(), opener=FakeOpener(reply))(MODEL, "x")
+
+
+@pytest.mark.parametrize("cost", [-5, "NaN", 1e400, float("nan"), True, "-0.01", "1e400x", [1]])
+def test_invalid_reported_cost_falls_back_to_tokens_times_prices(cost):
+    opener = FakeOpener(completion(prompt_tokens=1000, completion_tokens=500, cost=cost),
+                        completion(prompt_tokens=1000, completion_tokens=500, cost=cost))
+    transport = OpenRouterTransport(live_settings(), opener=opener)
+    transport(MODEL, "x")
+    transport(MODEL, "x")  # the budget is still a number, so the cap check still works
+    assert transport.totals.cost_usd == Decimal("0.004")  # 2 x (1000 * $1/M + 500 * $2/M)
+    assert transport.totals.cost_usd.is_finite()
+
+
+def test_invalid_token_counts_are_charged_at_the_worst_case():
+    usage = {"prompt_tokens": -10, "completion_tokens": 2.5}
+    transport = OpenRouterTransport(live_settings(), opener=FakeOpener(completion(**usage)))
+    transport(MODEL, "x")
+    t = transport.totals
+    assert (t.prompt_tokens, t.completion_tokens) == (connections.estimate_tokens("x"), 100)
+    assert t.cost_usd == (t.prompt_tokens * 1 + 100 * 2) / Decimal(1_000_000)
+
+
+@pytest.mark.parametrize("usage", [[], "lots", 7])
+def test_usage_that_is_not_an_object_is_charged_at_the_worst_case(usage):
+    reply = {"choices": [{"message": {"content": "ok"}}], "usage": usage}
+    transport = OpenRouterTransport(live_settings(), opener=FakeOpener(reply))
+    assert transport(MODEL, "x") == "ok"
+    assert transport.totals.completion_tokens == 100
+
+
+@pytest.mark.parametrize("spent", [Decimal("NaN"), Decimal("sNaN"), Decimal("-Infinity")])
+def test_a_broken_budget_refuses_instead_of_crashing(spent):
+    opener = FakeOpener()
+    transport = OpenRouterTransport(live_settings(), opener=opener)
+    transport.totals.cost_usd = spent
+    with pytest.raises(SpendCapReached, match="spend cap"):
+        transport(MODEL, "x")
+    assert opener.requests == []
+
+
+def test_cli_live_judge_survives_bad_reported_costs(local, monkeypatch, capsys):
+    cases = load_golden_cases()[:2]
+    local(toml=LIVE_TOML)
+    monkeypatch.setenv(ENV_FLAG, "1")
+    monkeypatch.setenv(API_KEY_ENV, KEY)
+    opener = FakeOpener(completion(PERFECT, prompt_tokens=900, completion_tokens=40, cost=-5),
+                        completion(PERFECT, prompt_tokens=900, completion_tokens=40, cost="NaN"))
+    monkeypatch.setattr(urllib.request, "urlopen", opener)
+    args = ["judge", "--live", "--case", cases[0].case_id, "--case", cases[1].case_id]
+    assert cli_main(args) == judge.EXIT_PASS
+    out = capsys.readouterr().out
+    assert "2 calls, 1800 prompt + 80 completion tokens, $0.00196 of $0.05 cap" in out
 
 
 # --- swapping providers by config only ---------------------------------------------

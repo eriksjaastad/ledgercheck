@@ -383,8 +383,11 @@ class OpenRouterTransport:
 
     OpenRouter returns ``usage`` (``prompt_tokens``, ``completion_tokens`` and
     ``cost`` in USD) on every non-streaming response; that cost is what is
-    added to ``totals``, with tokens times your prices as the fallback when it
-    is missing. Build one per run (``totals`` is that run's spend). ``opener`` and
+    added to ``totals``. When the cost or a token count is missing or invalid
+    (negative, not a number, infinite) the worst case is charged instead:
+    estimated prompt tokens, ``max_tokens`` for the reply, times your prices.
+
+    Build one per run (``totals`` is that run's spend). ``opener`` and
     ``sleep`` default to ``urllib.request.urlopen`` and ``time.sleep``; tests
     inject fakes.
     """
@@ -418,9 +421,13 @@ class OpenRouterTransport:
                 "(USD per million tokens) to connections.local.toml")
         prompt_price, completion_price = self._prices[model]
         estimate = estimate_tokens(prompt)
-        worst = (estimate * prompt_price + self._max_tokens * completion_price) / _MTOK
-        left = self.totals.cap_usd - self.totals.cost_usd
-        if worst > left:
+        try:
+            worst = (estimate * prompt_price + self._max_tokens * completion_price) / _MTOK
+            left = self.totals.cap_usd - self.totals.cost_usd
+            refuse = not (left.is_finite() and worst <= left)  # fail closed on NaN/infinity
+        except ArithmeticError:  # decimal errors included
+            raise SpendCapReached("spend cap: the remaining budget cannot be computed") from None
+        if refuse:
             raise SpendCapReached(f"spend cap: the next call could cost up to ${worst:.6f} but "
                                   f"${left:.6f} of ${self.totals.cap_usd} is left")
         data = self._post({"model": model, "messages": [{"role": "user", "content": prompt}],
@@ -428,14 +435,17 @@ class OpenRouterTransport:
         try:
             reply = data["choices"][0]["message"]["content"]
             usage = data.get("usage") or {}
-            # Missing token counts are charged at the worst case.
-            p_tok = int(usage.get("prompt_tokens", estimate))
-            c_tok = int(usage.get("completion_tokens", self._max_tokens))
-            reported = usage.get("cost")
-            cost = (Decimal(str(reported)) if reported is not None
-                    else (p_tok * prompt_price + c_tok * completion_price) / _MTOK)
-        except (KeyError, IndexError, TypeError, AttributeError, ValueError, InvalidOperation):
+        except (KeyError, IndexError, TypeError, AttributeError):
             raise TransportError(f"unexpected response shape from {self.url}") from None
+        if not isinstance(usage, Mapping):
+            usage = {}
+        # Missing or invalid usage is charged at the worst case: estimated prompt
+        # tokens, max_tokens for the reply, and tokens times prices for the cost.
+        p_tok = _count(usage.get("prompt_tokens"), estimate)
+        c_tok = _count(usage.get("completion_tokens"), self._max_tokens)
+        cost = _reported_cost(usage.get("cost"))
+        if cost is None:
+            cost = (p_tok * prompt_price + c_tok * completion_price) / _MTOK
         totals = self.totals
         totals.calls += 1
         totals.prompt_tokens += p_tok
@@ -465,12 +475,34 @@ class OpenRouterTransport:
             except (UnicodeDecodeError, json.JSONDecodeError):
                 raise TransportError(f"response from {self.url} is not JSON") from None
             except ValueError:  # e.g. http.client's "Invalid header value", which quotes the key
-                raise TransportError(f"could not send the request to {self.url}: invalid header "
-                                     "or URL (details withheld, they may contain the key)") from None
+                raise TransportError(
+                    f"could not send the request to {self.url}: invalid header or URL "
+                    "(details withheld, they may contain the key)") from None
         raise AssertionError("unreachable")
 
     def _redact(self, text: str) -> str:
         return text.replace(self._key, "[redacted]")
+
+
+def _count(value: Any, fallback: int) -> int:
+    """A reported token count, or ``fallback`` unless it is a whole number >= 0."""
+    valid = isinstance(value, int) and not isinstance(value, bool) and value >= 0
+    return value if valid else fallback
+
+
+_COST = re.compile(r"\d+(?:\.\d*)?(?:[eE][+-]?\d+)?")
+
+
+def _reported_cost(value: Any) -> Decimal | None:
+    """A reported USD cost if it is a finite number >= 0, else ``None``.
+
+    Rejects bools, negatives, NaN and infinity (JSON's ``1e400`` arrives as
+    infinity), so a bad value can never widen the budget.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    text = str(value).strip()
+    return Decimal(text) if _COST.fullmatch(text) else None
 
 
 def _http_message(exc: urllib.error.HTTPError, url: str) -> str:
