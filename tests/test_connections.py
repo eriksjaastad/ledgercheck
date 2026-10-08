@@ -296,10 +296,10 @@ def test_transport_posts_chat_completions_and_counts_reported_cost():
 
 
 def test_cost_is_computed_from_prices_when_not_reported():
-    opener = FakeOpener(completion(prompt_tokens=1000, completion_tokens=500))
+    opener = FakeOpener(completion(prompt_tokens=1000, completion_tokens=50))
     transport = OpenRouterTransport(live_settings(), opener=opener)
-    transport(MODEL, "x")
-    assert transport.totals.cost_usd == Decimal("0.002")  # 1000 * $1/M + 500 * $2/M
+    transport(MODEL, "x" * 1000)
+    assert transport.totals.cost_usd == Decimal("0.0011")  # 1000 * $1/M + 50 * $2/M
 
 
 def test_cap_refuses_a_call_whose_worst_case_does_not_fit():
@@ -409,6 +409,30 @@ def test_prompt_bound_holds_for_text_that_tokenizes_badly():
     assert len(opener.requests) == 1
 
 
+@pytest.mark.parametrize("usage, charged", [
+    ({"prompt_tokens": 1_000_000, "completion_tokens": 3}, ("bound", 3)),
+    ({"prompt_tokens": 4, "completion_tokens": 1_000_000}, (4, 100)),
+    ({"prompt_tokens": 10 ** 30, "completion_tokens": 10 ** 30}, ("bound", 100)),
+    ({}, ("bound", 100)),
+])
+def test_unreported_cost_never_exceeds_the_pre_call_worst_case(usage, charged):
+    bound = connections.max_prompt_tokens([{"role": "user", "content": "x"}])
+    worst = (bound * 1 + 100 * 2) / Decimal(1_000_000)
+    transport = OpenRouterTransport(live_settings(), opener=FakeOpener(completion(**usage)))
+    transport(MODEL, "x")
+    t = transport.totals
+    want_prompt = bound if charged[0] == "bound" else charged[0]
+    assert (t.prompt_tokens, t.completion_tokens) == (want_prompt, charged[1])
+    assert t.cost_usd == (want_prompt * 1 + charged[1] * 2) / Decimal(1_000_000) <= worst
+
+
+def test_a_valid_reported_cost_is_recorded_as_billed():
+    opener = FakeOpener(completion(prompt_tokens=10 ** 6, completion_tokens=10 ** 6, cost=0.04))
+    transport = OpenRouterTransport(live_settings(), opener=opener)
+    transport(MODEL, "x")
+    assert transport.totals.cost_usd == Decimal("0.04")  # above the worst case, but billed
+
+
 def test_a_billed_reply_with_bad_choices_still_counts_against_the_cap():
     reply = {"usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost": 0.003}}
     transport = OpenRouterTransport(live_settings(), opener=FakeOpener(reply, {"choices": []}))
@@ -426,12 +450,12 @@ def test_a_billed_reply_with_bad_choices_still_counts_against_the_cap():
 @pytest.mark.parametrize("cost", [-5, "NaN", 1e400, float("nan"), True, "-0.01", "1e400x", [1],
                                   "1e99999999999999999999999999", "1e1000000", 10 ** 12])
 def test_invalid_reported_cost_falls_back_to_tokens_times_prices(cost):
-    opener = FakeOpener(completion(prompt_tokens=1000, completion_tokens=500, cost=cost),
-                        completion(prompt_tokens=1000, completion_tokens=500, cost=cost))
+    opener = FakeOpener(completion(prompt_tokens=1000, completion_tokens=50, cost=cost),
+                        completion(prompt_tokens=1000, completion_tokens=50, cost=cost))
     transport = OpenRouterTransport(live_settings(), opener=opener)
-    transport(MODEL, "x")
-    transport(MODEL, "x")  # the budget is still a number, so the cap check still works
-    assert transport.totals.cost_usd == Decimal("0.004")  # 2 x (1000 * $1/M + 500 * $2/M)
+    transport(MODEL, "x" * 1000)
+    transport(MODEL, "x" * 1000)  # the budget is still a number, so the cap check still works
+    assert transport.totals.cost_usd == Decimal("0.0022")  # 2 x (1000 * $1/M + 50 * $2/M)
     assert transport.totals.cost_usd.is_finite()
 
 

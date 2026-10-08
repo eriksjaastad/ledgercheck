@@ -52,10 +52,11 @@ process environment. The flag is read from the environment only, never from
 a file, so nothing spends by accident. Each live run also has a hard cap:
 before every call the worst case (an upper bound on prompt tokens, one per
 UTF-8 byte of the messages plus a fixed overhead, plus ``max_tokens``, at
-your prices) must fit in what is left of
-``spend_cap_usd``, or the call is refused. After the call its actual cost
-(the provider's reported cost, else tokens times prices) is added. HTTP 429
-is retried up to 3 times, honouring ``Retry-After`` (capped at 30 s).
+your prices) must fit in what is left of ``spend_cap_usd``, or the call is
+refused. After the call its actual cost is added: the provider's reported
+cost, else tokens times prices with each count capped at its pre-call bound,
+so an unreported cost never exceeds that worst case. HTTP 429 is retried up
+to 3 times, honouring ``Retry-After`` (capped at 30 s).
 
 Checking your setup
 -------------------
@@ -397,9 +398,13 @@ class OpenRouterTransport:
     OpenRouter returns ``usage`` (``prompt_tokens``, ``completion_tokens`` and
     ``cost`` in USD) on every non-streaming response; that cost is what is
     added to ``totals``, even when the reply itself turns out to be unusable.
-    When the cost or a token count is missing or invalid (negative, not a
-    number, infinite, absurdly large) the worst case is charged instead:
-    ``max_prompt_tokens``, ``max_tokens`` for the reply, times your prices.
+    A valid reported cost is recorded as billed. Without one, the charge is
+    tokens times your prices, where a token count that is missing, invalid
+    or above its pre-call bound (``max_prompt_tokens`` for the prompt,
+    ``max_tokens`` for the reply) counts as that bound. So a call without a
+    reported cost is never charged more than the worst case it was admitted
+    under. An invalid reported cost (negative, not a number, infinite,
+    absurdly large) is treated as missing.
 
     Build one per run (``totals`` is that run's spend). ``opener`` and
     ``sleep`` default to ``urllib.request.urlopen`` and ``time.sleep``; tests
@@ -447,8 +452,8 @@ class OpenRouterTransport:
                                   f"${left:.6f} of ${self.totals.cap_usd} is left")
         data = self._post({"model": model, "messages": messages, "max_tokens": self._max_tokens})
         # Count the call before looking at the reply: a 200 response is billed
-        # even when its choices are missing or malformed. Missing or invalid
-        # usage is charged at the worst case.
+        # even when its choices are missing or malformed. Token counts are
+        # clamped to their bounds, so a computed charge never exceeds `worst`.
         usage = data.get("usage") if isinstance(data, Mapping) else None
         if not isinstance(usage, Mapping):
             usage = {}
@@ -456,7 +461,7 @@ class OpenRouterTransport:
         c_tok = _count(usage.get("completion_tokens"), self._max_tokens)
         cost = _reported_cost(usage.get("cost"))
         if cost is None:
-            cost = (p_tok * prompt_price + c_tok * completion_price) / _MTOK
+            cost = min((p_tok * prompt_price + c_tok * completion_price) / _MTOK, worst)
         totals = self.totals
         totals.calls += 1
         totals.prompt_tokens += p_tok
@@ -502,10 +507,13 @@ class OpenRouterTransport:
         return text.replace(self._key, "[redacted]")
 
 
-def _count(value: Any, fallback: int) -> int:
-    """A reported token count, or ``fallback`` unless it is a whole number >= 0."""
-    valid = isinstance(value, int) and not isinstance(value, bool) and value >= 0
-    return value if valid else fallback
+def _count(value: Any, bound: int) -> int:
+    """A reported token count if it is a whole number in ``0..bound``, else ``bound``.
+
+    ``bound`` is the pre-call upper bound, so a count above it is implausible.
+    """
+    valid = isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= bound
+    return value if valid else bound
 
 
 _COST = re.compile(r"\d+(?:\.\d*)?(?:[eE][+-]?\d+)?")
