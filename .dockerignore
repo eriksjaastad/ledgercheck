@@ -13,3 +13,4 @@ scripts
 *.egg-info
 build
 dist
+.github

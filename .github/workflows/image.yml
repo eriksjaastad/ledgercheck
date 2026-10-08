@@ -1,0 +1,82 @@
+name: Image
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/eriksjaastad/ledgercheck
+      LOCAL_TAG: ledgercheck:ci
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=long
+          labels: |
+            org.opencontainers.image.source=https://github.com/eriksjaastad/ledgercheck
+            org.opencontainers.image.description=Invoice reconciliation pipeline with an offline golden-dataset eval gate
+            org.opencontainers.image.licenses=MIT
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Every run (pull requests included) builds into the local Docker
+      # engine so the image can be smoke-tested before anything is pushed.
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            ${{ env.LOCAL_TAG }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test (default command runs the offline golden suite)
+        run: docker run --rm --network none "$LOCAL_TAG"
+
+      - name: Smoke test (--help)
+        run: docker run --rm --network none "$LOCAL_TAG" --help
+
+      # Only pushes to main log in and publish; pull requests never do.
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the smoke-tested image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in $TAGS; do
+            docker push "$tag"
+          done

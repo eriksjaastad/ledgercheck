@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Deploy helper for Ledger Check. It never deploys.
 
-The Dockerfile and the Azure Container Apps stack in ``terraform/`` are
-a write-only reference: nothing in this repo applies them. This script only
-checks them.
+The Azure Container Apps stack in ``terraform/`` is a write-only reference:
+nothing in this repo applies it. This script only checks it. The Dockerfile is
+different: CI builds the image, smoke-tests it and publishes it to
+``ghcr.io/eriksjaastad/ledgercheck`` from ``main``.
 
 Commands
 --------
