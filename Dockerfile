@@ -1,5 +1,8 @@
 # Ledger Check container image: the offline judge gate by default.
 #
+# CI builds this image, smoke-tests it and publishes it to
+# ghcr.io/eriksjaastad/ledgercheck from main (.github/workflows/image.yml).
+#
 # Build and run on your own machine (Docker is not needed for tests):
 #
 #     docker build -t ledgercheck:dev .

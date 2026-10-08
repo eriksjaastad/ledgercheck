@@ -1,6 +1,9 @@
 # Ledger Check
 
-**AI-driven B2B invoice and payment reconciliation.** Multi-agent intake, policy check, and approval flags — with golden-dataset evals and observability hooks.
+[![CI](https://github.com/eriksjaastad/ledgercheck/actions/workflows/ci.yml/badge.svg)](https://github.com/eriksjaastad/ledgercheck/actions/workflows/ci.yml)
+[![Image](https://github.com/eriksjaastad/ledgercheck/actions/workflows/image.yml/badge.svg)](https://github.com/eriksjaastad/ledgercheck/pkgs/container/ledgercheck)
+
+An invoice-reconciliation pipeline (intake, policy check, approval flags) with a golden-dataset eval gate. Today it runs offline and deterministically on the bundled sample invoices; the live LLM path is not built yet.
 
 Not a full ERP. Not a payments processor. Not a hosted SaaS you sign up for here.
 
@@ -18,5 +21,16 @@ pip install -e ".[dev]"
 ledgercheck --help
 pytest
 ```
+
+## Docker
+
+Each push to `main` publishes an image to `ghcr.io/eriksjaastad/ledgercheck`. Its default command is `ledgercheck judge`, the offline golden suite, which exits 0 when the suite passes:
+
+```bash
+docker run --rm ghcr.io/eriksjaastad/ledgercheck
+docker run --rm ghcr.io/eriksjaastad/ledgercheck --help
+```
+
+The `Dockerfile` packages the app; `terraform/` is an unapplied Azure reference that nothing provisions.
 
 Behavior lives in `--help` and module docstrings. Current limits: [Known issues](ISSUES.md). License: [MIT](LICENSE) — Copyright (c) 2026 Erik Sjaastad.

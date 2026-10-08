@@ -45,7 +45,11 @@ from ledgercheck.eval import judge
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ledgercheck",
-        description="AI-driven B2B invoice and payment reconciliation.",
+        description=(
+            "Invoice reconciliation pipeline (intake, policy check, approval flags) with a "
+            "golden-dataset eval gate. Runs offline on bundled sample invoices; the live LLM "
+            "path is not built yet."
+        ),
     )
     parser.add_argument(
         "--version",

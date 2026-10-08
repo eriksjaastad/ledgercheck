@@ -2,6 +2,7 @@
 
 No Docker, Terraform or Azure is needed: these read the files and call the
 helper with a fake runner, so nothing is built, validated or applied here.
+The image itself is built and smoke-tested in CI (.github/workflows/image.yml).
 """
 
 from __future__ import annotations
@@ -201,8 +202,11 @@ def test_deploy_help_documents_docker_build_and_the_rule(capsys) -> None:
     with pytest.raises(SystemExit) as exit_info:
         _deploy().main(["--help"])
     assert exit_info.value.code == 0
-    out = capsys.readouterr().out
-    assert "docker build" in out and "write-only reference: nothing in this repo applies" in out
+    out = " ".join(capsys.readouterr().out.split())
+    assert "docker build" in out and "ghcr.io/eriksjaastad/ledgercheck" in out
+    rule = next(s for s in out.split(". ") if "write-only reference" in s)
+    assert "write-only reference: nothing in this repo applies it" in rule
+    assert "terraform/" in rule and "Dockerfile" not in rule  # the image is built in CI
 
 
 def test_readme_has_no_localhost_or_deploy_runbook() -> None:
