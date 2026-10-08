@@ -1,0 +1,5 @@
+#!/bin/sh
+# Abort the push when a tracked file looks like a secret or a local config file.
+# Enable once per clone: git config core.hooksPath .githooks
+root="$(git rev-parse --show-toplevel)" || exit 1
+exec python3 "$root/scripts/leak_guard.py" --root "$root"
