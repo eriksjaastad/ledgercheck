@@ -886,10 +886,11 @@ def test_odd_files_at_the_config_path_exit_2_without_hanging(local, capsys, make
     assert code == 2 and problem in err
 
 
-def test_odd_dotenv_files_are_skipped(local, capsys):
+def test_odd_dotenv_files_are_skipped(local, monkeypatch, capsys):
     os.mkfifo(local() / ".env")  # reading a FIFO would block forever
     assert load_settings().problems == ()
     (local() / "connections.local.toml").write_text(LIVE_TOML)
+    monkeypatch.setenv(API_KEY_ENV, KEY)  # a complete live config
     assert cli_main(["connections"]) == 0
 
 
@@ -1008,7 +1009,7 @@ HOSTILE_TOML = {
 def _assert_only_config_errors(capsys):
     settings = load_settings()  # must not raise
     code, err = _connections_exit(capsys)
-    assert code in (0, 2) and (code == 2) == bool(settings.problems)
+    assert code in (0, 2) and (code == 2) == bool(settings.problems or settings.live_gaps)
     assert type(connections.router()) is MockRouter  # the offline default still works
     return settings
 
@@ -1044,7 +1045,7 @@ def test_hostile_env_values_are_only_ever_config_problems(monkeypatch, capsys, n
     monkeypatch.setenv(ENV[name], value)
     settings = load_settings()  # must not raise
     code, err = _connections_exit(capsys)
-    assert code in (0, 2) and (code == 2) == bool(settings.problems)
+    assert code in (0, 2) and (code == 2) == bool(settings.problems or settings.live_gaps)
     try:
         router = connections.router()
     except ConnectionConfigError:  # an unknown provider is the documented config error
@@ -1055,3 +1056,162 @@ def test_hostile_env_values_are_only_ever_config_problems(monkeypatch, capsys, n
 def test_a_hostile_connections_file_path_is_a_config_problem(monkeypatch, capsys):
     monkeypatch.setenv(connections.CONNECTIONS_FILE_ENV, "a" * 5000)  # name too long
     assert _assert_only_config_errors(capsys).problems
+
+
+# --- a key pasted into any setting never shows; unknown providers fail validation -----
+
+PASTE = "sk-or-v1-" + "0123456789abcdef" * 4  # realistic shape, built at runtime, not a key
+
+
+def _run_of(text, secret=PASTE):
+    """Length of the longest piece of ``secret`` in ``text`` (never prints the secret)."""
+    best = 0
+    for i in range(len(text)):
+        n = 0
+        while i + n < len(text) and text[i:i + n + 1] in secret:
+            n += 1
+        best = max(best, n)
+    return best
+
+
+def _clean(text):
+    return _run_of(str(text)) < 8
+
+
+PASTED_ENV = {
+    "provider": (ENV["provider"], PASTE),
+    "model small": (ENV["model_small"], PASTE),
+    "model large": (ENV["model_large"], PASTE),
+    "model large fragment": (ENV["model_large"], "vendor/" + PASTE[-12:]),
+    "base url path": (ENV["base_url"], f"https://openrouter.ai/api/{PASTE}"),
+    "base url bare": (ENV["base_url"], PASTE),
+}
+PASTED_TOML = {
+    "provider": f'provider = "{PASTE}"\n',
+    "model small": f'[models]\nsmall = "{PASTE}"\n',
+    "model large": f'provider = "openrouter"\n[models]\nlarge = "{PASTE}"\n',
+    "base url": f'base_url = "https://openrouter.ai/api/{PASTE}"\n',
+    "price model id": f'[prices."{PASTE}"]\nprompt = 1\ncompletion = 1\n',
+}
+
+
+def _assert_key_never_shows(monkeypatch, capsys):
+    settings = load_settings()  # never raises
+    assert any("contains your API key" in p for p in settings.problems), settings.problems
+    for text in (repr(settings), str(settings), *settings.problems, *settings.live_gaps):
+        assert _clean(text), "a piece of the pasted key is shown"
+    assert all(_clean(cell) for row in connections.describe() for cell in row)
+    assert cli_main(["connections"]) == 2
+    out = capsys.readouterr()
+    assert _clean(out.out + out.err) and "Traceback" not in out.err
+    try:
+        connections.router()
+    except LiveLLMDisabled as exc:  # the spend gate, or the documented config error
+        assert _clean(exc)
+    monkeypatch.setenv(ENV_FLAG, "1")
+    with pytest.raises(ConnectionConfigError) as exc:
+        connections.require_live()
+    assert _clean(exc.value)
+    assert cli_main(["judge", "--live", "--case", CASE]) == judge.EXIT_ERROR
+    out = capsys.readouterr()
+    assert _clean(out.out + out.err) and "Traceback" not in out.err
+
+
+@pytest.mark.parametrize("case", list(PASTED_ENV))
+def test_a_key_pasted_into_an_env_setting_never_shows(monkeypatch, capsys, case):
+    monkeypatch.setenv(API_KEY_ENV, PASTE)
+    name, value = PASTED_ENV[case]
+    monkeypatch.setenv(name, value)
+    _assert_key_never_shows(monkeypatch, capsys)
+
+
+@pytest.mark.parametrize("case", list(PASTED_TOML))
+def test_a_key_pasted_into_a_file_setting_never_shows(local, monkeypatch, capsys, case):
+    monkeypatch.setenv(API_KEY_ENV, PASTE)
+    local(toml=PASTED_TOML[case])
+    _assert_key_never_shows(monkeypatch, capsys)
+
+
+def test_a_key_pasted_into_the_connections_file_path_never_shows(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv(API_KEY_ENV, PASTE)
+    monkeypatch.setenv(connections.CONNECTIONS_FILE_ENV, str(tmp_path / f"{PASTE}.toml"))
+    _assert_key_never_shows(monkeypatch, capsys)
+
+
+def test_use_time_errors_and_reprs_mask_a_pasted_key():
+    settings = live_settings(**{API_KEY_ENV: PASTE})
+    transport = OpenRouterTransport(settings, opener=FakeOpener())
+    for model in (PASTE, "vendor/" + PASTE[-12:]):
+        with pytest.raises(ConnectionConfigError, match="no price for") as exc:
+            transport(model, "x")
+        assert _clean(exc.value)
+    odd = connections.Settings(**{**settings.__dict__,
+                                  "base_url": f"https://openrouter.ai/{PASTE}",
+                                  "models": {"large": PASTE}})
+    assert _clean(repr(odd)) and _clean(repr(OpenRouterTransport(odd, opener=FakeOpener())))
+    assert _clean(connections.mask(f"model {PASTE}", {API_KEY_ENV: PASTE}))
+
+
+class _PastedModelRouter:
+    """A router whose model id is the pasted key (as if validation were bypassed)."""
+
+    name = "openrouter"
+
+    def __init__(self, fail=False):
+        self.fail = fail
+        self.totals = connections.Totals(Decimal("0.05"))
+
+    def route(self, task):
+        from ledgercheck.agents.routing import Route, Tier
+
+        return Route(TaskKind(task), Tier.LARGE, "vendor/" + PASTE, None)
+
+    def complete(self, task, prompt):
+        self.totals.calls += 1
+        if self.fail:
+            raise TransportError(f"model vendor/{PASTE} is not available")
+        return PERFECT
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_judge_live_output_masks_a_pasted_model_id(monkeypatch, capsys, fail):
+    from ledgercheck.eval.judge import LiveJudge
+
+    monkeypatch.setenv(API_KEY_ENV, PASTE)
+    monkeypatch.setattr(judge, "_live_judge",
+                        lambda: LiveJudge(router=_PastedModelRouter(fail=fail)))
+    code = cli_main(["judge", "--live", "--case", CASE])
+    out = capsys.readouterr()
+    assert code == (judge.EXIT_ERROR if fail else judge.EXIT_PASS)
+    assert "live run (" in (out.err if fail else out.out)
+    assert _clean(out.out + out.err)
+
+
+def test_an_unknown_provider_fails_validation_but_not_the_offline_default(monkeypatch, capsys):
+    monkeypatch.setenv(ENV["provider"], "openruter")
+    settings = load_settings()  # never raises
+    assert any("unknown provider 'openruter'" in p for p in settings.problems)
+    code, err = _connections_exit(capsys)
+    assert code == 2 and "unknown provider 'openruter': use one of ['mock', 'openrouter']" in err
+    with pytest.raises(ConnectionConfigError, match="unknown provider"):
+        connections.router()
+    assert cli_main(["judge", "--case", CASE]) == judge.EXIT_PASS  # the mock judge still runs
+
+
+@pytest.mark.parametrize("toml, key, needs", [
+    (LIVE_TOML, True, None),
+    (LIVE_TOML, False, "needs an API key"),
+    ('provider = "openrouter"\n', True, "needs a spend cap"),
+    ('provider = "openrouter"\n', True, "needs a large model id"),
+    (LIVE_TOML.replace("[models]\n", '[models]\nsmall = "vendor/small-x"\n'), True,
+     "needs a price for model small (vendor/small-x)"),
+])
+def test_connections_reports_what_a_live_provider_still_needs(local, monkeypatch, capsys, toml,
+                                                             key, needs):
+    local(toml=toml)
+    if key:
+        monkeypatch.setenv(API_KEY_ENV, KEY)
+    code, err = _connections_exit(capsys)
+    assert code == (0 if needs is None else 2)
+    assert needs is None or f"connections: provider openrouter {needs}" in err
+    assert type(load_settings()) is connections.Settings  # never raises

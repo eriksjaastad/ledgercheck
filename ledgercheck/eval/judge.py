@@ -481,13 +481,14 @@ def run(args: argparse.Namespace) -> int:
         live = _live_judge() if args.live else None
         report = run_suite(MockJudge() if live is None else live, cases)
     except (LiveLLMDisabled, TransportError, GoldenError, JudgeError) as exc:
-        print(f"judge: {exc}", file=sys.stderr)
+        print(connections.mask(f"judge: {exc}"), file=sys.stderr)
         if live is not None and live.totals is not None:
-            print(f"live run ({live.model}): {live.totals.line()}", file=sys.stderr)
+            print(connections.mask(f"live run ({live.model}): {live.totals.line()}"),
+                  file=sys.stderr)
         return EXIT_ERROR
     print(format_report(report))
     if live is not None and live.totals is not None:
-        print(f"live run ({live.model}): {live.totals.line()}")
+        print(connections.mask(f"live run ({live.model}): {live.totals.line()}"))
     if args.json is not None:
         try:
             args.json.write_text(json.dumps(report.to_json(), indent=2) + "\n", encoding="utf-8")

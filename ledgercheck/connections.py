@@ -87,7 +87,7 @@ import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
@@ -178,6 +178,18 @@ def _scrub(text: Any, key: str | None, limit: int = MAX_ERROR_CHARS) -> str:
                 i += 1
         text = "".join(out)
     return text if len(text) <= limit else text[:limit] + "..."
+
+
+def _mask(text: Any, secrets: tuple[str | None, ...], limit: int) -> str:
+    """``_scrub`` against each secret (cutting only at the end)."""
+    for secret in secrets:
+        text = _scrub(text, secret, limit=sys.maxsize)
+    return _scrub(text, None, limit)
+
+
+def _holds_secret(text: str, secret: str | None) -> bool:
+    """``text`` contains ``secret`` or an 8+ character piece of it."""
+    return bool(secret) and _scrub(text, secret, sys.maxsize) != _scrub(text, None, sys.maxsize)
 
 
 def _shown(value: Any) -> str:
@@ -370,6 +382,24 @@ def _provider(raw: Any) -> str:
     return raw.strip().lower() or "mock"
 
 
+def _live_gaps(provider: str, key: str | None, cap: Decimal | None, cap_raw: Any,
+               models: Mapping[str, str], prices: Mapping[str, Any]) -> list[str]:
+    """What a live run with ``provider`` still needs; checked up front, not only at use."""
+    if provider != "openrouter":
+        return []
+    gaps = []
+    if key is None:
+        gaps.append(f"an API key: {_WHERE_KEY}")
+    if cap is None and cap_raw is None:
+        gaps.append("a spend cap: set LEDGERCHECK_SPEND_CAP_USD or spend_cap_usd")
+    if "large" not in models:
+        gaps.append("a large model id (the judge uses it): set LEDGERCHECK_MODEL_LARGE or "
+                    "[models] large")
+    gaps += [f'a price for model {tier} ({model}): add [prices."{model}"] prompt and completion '
+             "(USD per million tokens)" for tier, model in models.items() if model not in prices]
+    return gaps
+
+
 def _model_id(tier: str) -> Callable[[Any], str | None]:
     def parse(raw: Any) -> str | None:
         if raw is not None and not isinstance(raw, str):
@@ -409,9 +439,12 @@ def _prices(raw: Any) -> dict[str, tuple[Decimal, Decimal]]:
     return prices
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class Settings:
-    """Resolved connection settings; ``sources`` says where each came from."""
+    """Resolved connection settings; ``sources`` says where each came from.
+
+    Its repr never shows the key, nor any value that holds a piece of it.
+    """
 
     provider: str
     models: Mapping[str, str]  # tier ("small"/"large") -> model id, only those configured
@@ -425,6 +458,12 @@ class Settings:
     api_key: str | None = field(default=None, repr=False)
     api_key_blank: bool = False
     problems: tuple[str, ...] = ()  # invalid settings; only a live run refuses on them
+    live_gaps: tuple[str, ...] = ()  # what the configured live provider still needs
+
+    def __repr__(self) -> str:
+        shown = ", ".join(f"{f.name}={getattr(self, f.name)!r}" for f in fields(self)
+                          if f.name != "api_key")
+        return _scrub(f"Settings({shown})", self.api_key, limit=sys.maxsize)
 
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
@@ -462,6 +501,18 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     cap = _parsed(problems, _cap, raw["spend_cap_usd"], None)
     max_tokens = _parsed(problems, _max_tokens, raw["max_tokens"], DEFAULT_MAX_TOKENS)
     prices = _parsed(problems, _prices, src.config.get("prices", {}), {})
+    if provider not in PROVIDERS:
+        problems.append(f"unknown provider {_shown(provider)}: use one of {list(PROVIDERS)}")
+    # A key pasted into another setting would be sent as a model id or URL: refuse it.
+    pasted = [("provider", raw["provider"]), ("model small", raw["model_small"]),
+              ("model large", raw["model_large"]), ("base_url", raw["base_url"]),
+              (CONNECTIONS_FILE_ENV, str(src.config_path or ""))]
+    pasted += [("a [prices] model id", model) for model in prices]
+    problems += [f"{name} contains your API key (or part of it); it was probably pasted into "
+                 "the wrong setting" for name, value in pasted
+                 if isinstance(value, str) and isinstance(key, str) and _holds_secret(value, key)]
+    gaps = _live_gaps(provider, key, cap, raw["spend_cap_usd"],
+                      {tier: model for tier, model in models.items() if model}, prices)
     return Settings(
         provider=provider,
         models={tier: model for tier, model in models.items() if model},
@@ -476,6 +527,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         api_key_blank=src.blank(API_KEY_ENV),
         # Values are echoed in problems, so a key pasted into the wrong setting is masked.
         problems=tuple(_scrub(problem, key, limit=500) for problem in problems),
+        live_gaps=tuple(_scrub(gap, key, limit=500) for gap in gaps),
     )
 
 
@@ -619,13 +671,14 @@ class OpenRouterTransport:
         self.totals = Totals(settings.spend_cap_usd)
 
     def __repr__(self) -> str:
-        return f"OpenRouterTransport(url={self.url!r}, totals={self.totals!r})"
+        return _scrub(f"OpenRouterTransport(url={self.url!r}, totals={self.totals!r})",
+                      self._key, limit=sys.maxsize)
 
     def __call__(self, model: str, prompt: str) -> str:
         if model not in self._prices:
-            raise ConnectionConfigError(
+            raise ConnectionConfigError(_scrub(
                 f'no price for {model!r}: add [prices."{model}"] prompt = ..., completion = ... '
-                "(USD per million tokens) to connections.local.toml")
+                "(USD per million tokens) to connections.local.toml", self._key, limit=500))
         prompt_price, completion_price = self._prices[model]
         messages = [{"role": "user", "content": prompt}]
         bound = max_prompt_tokens(messages)
@@ -789,13 +842,14 @@ def router(env: Mapping[str, str] | None = None, *, opener: Opener | None = None
     """
     from ledgercheck.agents import routing  # routing imports this module
 
-    provider = load_settings(env).provider
-    if provider == "mock":
+    settings = load_settings(env)
+    if settings.provider == "mock":
         return routing.MockRouter(env)
-    if provider == "openrouter":
+    if settings.provider == "openrouter":
         transport = OpenRouterTransport(require_live(env), opener=opener, sleep=sleep)
         return routing.OpenRouterRouter(env, transport=transport)
-    raise ConnectionConfigError(f"unknown provider {provider!r}: use one of {list(PROVIDERS)}")
+    raise ConnectionConfigError(_scrub(f"unknown provider {_shown(settings.provider)}: use one "
+                                       f"of {list(PROVIDERS)}", settings.api_key, limit=500))
 
 
 def tracer(env: Mapping[str, str] | None = None) -> Tracer:
@@ -841,9 +895,25 @@ def _file_state(path: Path) -> str:
     return state
 
 
+def _display_secrets(settings: Settings, src: _Sources) -> tuple[str | None, ...]:
+    return settings.api_key, src.value(SECRET_KEY_ENV)
+
+
+def mask(text: Any, env: Mapping[str, str] | None = None, limit: int = 2000) -> str:
+    """``text`` safe to print: no control characters, and the resolved API key and Langfuse
+    secret key (and any 8+ character piece of them) masked. Use it for anything that shows
+    a setting-derived value, such as a model id."""
+    return _mask(text, _display_secrets(load_settings(env), _Sources(env, with_file=False)),
+                 limit)
+
+
 def describe(env: Mapping[str, str] | None = None) -> list[tuple[str, str, str]]:
-    """``(setting, value, source)`` rows for ``ledgercheck connections``; never the key."""
+    """``(setting, value, source)`` rows for ``ledgercheck connections``.
+
+    Every cell is masked: a key pasted into any setting never shows.
+    """
     s, src = load_settings(env), _Sources(env, with_file=False)
+    secrets = _display_secrets(s, src)
     key = ("missing" if s.api_key is None
            else f"set (from {s.sources['api_key']})")
     if s.api_key is None and s.api_key_blank:
@@ -852,7 +922,7 @@ def describe(env: Mapping[str, str] | None = None) -> list[tuple[str, str, str]]
         key += ", invalid (whitespace, control or non-ASCII characters)"
     langfuse = all(src.value(n) for n in (PUBLIC_KEY_ENV, SECRET_KEY_ENV))
     config = "" if s.config_file is None else f"{s.config_file} ({_file_state(s.config_file)})"
-    return [
+    rows = [
         ("provider", s.provider, s.sources["provider"]),
         ("live calls", f"on ({ENV_FLAG}=1)" if s.live_flag else f"off ({ENV_FLAG} is not 1)",
          "env"),
@@ -867,6 +937,8 @@ def describe(env: Mapping[str, str] | None = None) -> list[tuple[str, str, str]]
         ("tracing", "langfuse" if langfuse else "off", ""),
         ("config file", config, ""),
     ]
+    return [(name, _mask(value, secrets, 200), _mask(source, secrets, 200))
+            for name, value, source in rows]
 
 
 def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.ArgumentParser:
@@ -879,14 +951,16 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
 
 
 def run(args: argparse.Namespace) -> int:
-    """Print the resolved settings; exit 2 if any setting is invalid, else 0."""
-    for name, value, source in describe():
-        value, source = _scrub(value, None, 200), _scrub(source, None, 200)  # no control chars
+    """Print the resolved settings; exit 2 if a setting is invalid or the configured live
+    provider is missing something it needs, else 0."""
+    for name, value, source in describe():  # already masked
         print(f"{name:<12} {value:<44} {source}".rstrip())
-    problems = load_settings().problems
-    for problem in problems:
+    settings = load_settings()
+    for problem in settings.problems:
         print(f"connections: {problem}", file=sys.stderr)
-    return 2 if problems else 0
+    for gap in settings.live_gaps:
+        print(f"connections: provider {settings.provider} needs {gap}", file=sys.stderr)
+    return 2 if settings.problems or settings.live_gaps else 0
 
 
 def main(argv: list[str] | None = None) -> int:
