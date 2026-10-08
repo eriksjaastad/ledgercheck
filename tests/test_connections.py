@@ -2,6 +2,7 @@
 opener, no sockets), provider swapping by config, and the key never leaking."""
 
 import email.message
+import http.client
 import io
 import json
 import re
@@ -358,6 +359,27 @@ def test_other_http_errors_are_not_retried_and_never_show_the_key():
         OpenRouterTransport(live_settings(), opener=opener,
                             sleep=lambda s: pytest.fail("retried"))(MODEL, "x")
     assert "HTTP 401" in str(exc.value) and "[redacted]" in str(exc.value)
+    assert KEY not in str(exc.value) and exc.value.__cause__ is None
+
+
+class BrokenResponse(io.BytesIO):
+    """A response whose body fails mid-read, as a dropped or stalled connection does."""
+
+    def __init__(self, error):
+        super().__init__()
+        self.error = error
+
+    def read(self, *args):
+        raise self.error
+
+
+@pytest.mark.parametrize("error", [http.client.IncompleteRead(b"{\"cho", 200),
+                                   TimeoutError("timed out")])
+def test_a_failed_response_read_is_a_transport_error_without_the_key(error):
+    transport = OpenRouterTransport(live_settings(),
+                                    opener=lambda request, timeout: BrokenResponse(error))
+    with pytest.raises(TransportError, match="openrouter.ai/api/v1/chat/completions") as exc:
+        transport(MODEL, "x")
     assert KEY not in str(exc.value) and exc.value.__cause__ is None
 
 

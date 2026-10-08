@@ -78,6 +78,7 @@ that looks like a key, or a local ``.env`` or ``connections.local*`` file.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import math
 import os
@@ -486,6 +487,9 @@ class OpenRouterTransport:
             except (urllib.error.URLError, OSError) as exc:
                 reason = getattr(exc, "reason", exc)
                 raise TransportError(self._redact(f"cannot reach {self.url}: {reason}")) from None
+            except http.client.HTTPException as exc:  # e.g. IncompleteRead mid-response
+                raise TransportError(self._redact(
+                    f"bad or truncated response from {self.url}: {type(exc).__name__}")) from None
             except (UnicodeDecodeError, json.JSONDecodeError):
                 raise TransportError(f"response from {self.url} is not JSON") from None
             except ValueError:  # e.g. http.client's "Invalid header value", which quotes the key
