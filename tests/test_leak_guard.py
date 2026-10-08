@@ -1,4 +1,4 @@
-"""scripts/leak_guard.py: clean on this repo, loud on planted fakes (offline, temp git repos)."""
+"""scripts/leak_guard.py scans committed content only (HEAD, --history, --pre-push), offline."""
 
 import subprocess
 import sys
@@ -8,48 +8,69 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARD = ROOT / "scripts" / "leak_guard.py"
+ZERO = "0" * 40
 # Built at runtime so this file never holds a key-shaped string itself.
 FAKE_OPENROUTER = "sk-or-v1-" + "a1B2" * 10
 FAKE_GENERIC = "sk-" + "Zy9x" * 10
 FAKE_VALUE = "q8" * 12
+# Temp repos must not run your own git hooks or need signing keys.
+GIT = ["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false",
+       "-c", "user.name=Leak Test", "-c", "user.email=leak@test.invalid"]
 
 
-def guard(root: Path) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, str(GUARD), "--root", str(root)],
-                          capture_output=True, text=True, timeout=60)
+def guard(root: Path, *args: str, stdin: str = "") -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(GUARD), "--root", str(root), *args],
+                          input=stdin, capture_output=True, text=True, timeout=60)
 
 
-def repo(tmp_path: Path, files: dict[str, str]) -> Path:
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, timeout=60)
+def git(root: Path, *args: str) -> str:
+    done = subprocess.run([*GIT, "-C", str(root), *args], check=True, capture_output=True,
+                          text=True, timeout=60)
+    return done.stdout.strip()
+
+
+def commit(root: Path, files: dict[str, str | None], message: str = "change") -> str:
+    """Write (or, for ``None``, delete via git) ``files``, commit, return the sha."""
+    if not (root / ".git").exists():
+        git(root, "init", "-q")
     for name, text in files.items():
-        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / name).write_text(text, encoding="utf-8")
-    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, timeout=60)
-    return tmp_path
+        if text is None:
+            git(root, "rm", "-q", name)
+            continue
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(text, encoding="utf-8")
+        git(root, "add", name)
+    git(root, "commit", "-q", "--allow-empty", "-m", message)
+    return git(root, "rev-parse", "HEAD")
 
 
-def test_this_repo_is_clean():
-    done = guard(ROOT)
-    assert done.returncode == 0, done.stderr
-    assert "leak guard: clean" in done.stdout
+def pre_push(local: str, remote: str = ZERO) -> str:
+    return f"refs/heads/main {local} refs/heads/main {remote}\n"
+
+
+def test_this_repo_is_clean_at_head_and_in_history():
+    for args in ((), ("--history",)):
+        done = guard(ROOT, *args)
+        assert done.returncode == 0, done.stderr
+        assert "leak guard: clean" in done.stdout
 
 
 def test_the_examples_and_test_fakes_pass(tmp_path):
-    root = repo(tmp_path, {
+    commit(tmp_path, {
         ".env.example": "OPENROUTER_API_KEY=your-openrouter-key-here\n"
                         "LEDGERCHECK_LLM_BASE_URL=https://openrouter.ai/api/v1\n",
         "connections.example.toml": 'api_key = "your-key-here"\n'
                                     'base_url = "https://openrouter.ai/api/v1"\n',
         "tests/test_x.py": 'api_key = "test-key-not-real"\n',
     })
-    done = guard(root)
-    assert done.returncode == 0, done.stderr
+    for args in ((), ("--history",)):
+        assert guard(tmp_path, *args).returncode == 0
 
 
 @pytest.mark.parametrize("name, text, expect", [
-    (".env", "X=1\n", ".env: local .env file is tracked"),
-    ("config/.env.production", "X=1\n", "local .env file is tracked"),
-    ("connections.local.toml", 'provider = "mock"\n', "local connections file is tracked"),
+    (".env", "X=1\n", ".env: local .env file is committed"),
+    ("config/.env.production", "X=1\n", "local .env file is committed"),
+    ("connections.local.toml", 'provider = "mock"\n', "local connections file is committed"),
     ("app/settings.py", f'KEY = "{FAKE_OPENROUTER}"\n', "app/settings.py:1: OpenRouter key"),
     ("notes.md", f"token: {FAKE_GENERIC}\n", "notes.md:1: API key"),
     ("conf.toml", f'\n api_key = "{FAKE_VALUE}"\n', "conf.toml:2: api_key assignment"),
@@ -58,23 +79,74 @@ def test_the_examples_and_test_fakes_pass(tmp_path):
      "example endpoint"),
 ])
 def test_planted_fakes_fail_with_redacted_output(tmp_path, name, text, expect):
-    done = guard(repo(tmp_path, {name: text}))
+    commit(tmp_path, {name: text})
+    done = guard(tmp_path)
     assert done.returncode == 1
-    assert expect in done.stderr and "nothing pushed" in done.stderr
+    assert expect in done.stderr and "before pushing" in done.stderr
     for secret in (FAKE_OPENROUTER, FAKE_GENERIC, FAKE_VALUE, "llm.internal.corp"):
         assert secret not in done.stderr + done.stdout
+
+
+@pytest.fixture
+def key_then_removed(tmp_path):
+    """base (clean) -> leak (adds a key) -> fix (deletes it): HEAD itself is clean."""
+    base = commit(tmp_path, {"README.md": "hello\n"}, "base")
+    leak = commit(tmp_path, {"app/settings.py": f'KEY = "{FAKE_OPENROUTER}"\n'}, "leak")
+    fix = commit(tmp_path, {"app/settings.py": None}, "fix")
+    return tmp_path, base, leak, fix
+
+
+def test_a_key_removed_later_is_still_found_in_history(key_then_removed):
+    root, _, leak, _ = key_then_removed
+    assert guard(root).returncode == 0  # the HEAD tree is clean
+    done = guard(root, "--history")
+    assert done.returncode == 1
+    assert f"{leak[:12]} app/settings.py:1: OpenRouter key" in done.stderr
+    assert FAKE_OPENROUTER not in done.stderr
+
+
+def test_pre_push_scans_every_commit_in_the_pushed_range(key_then_removed):
+    root, base, leak, fix = key_then_removed
+    assert guard(root, "--pre-push", stdin=pre_push(fix)).returncode == 1  # new branch
+    assert guard(root, "--pre-push", stdin=pre_push(fix, base)).returncode == 1  # base..fix
+    assert guard(root, "--pre-push", stdin=pre_push(fix, leak)).returncode == 0  # only the fix
+    assert guard(root, "--pre-push", stdin=pre_push(ZERO, fix)).returncode == 0  # ref deletion
+    assert guard(root, "--pre-push").returncode == 0  # nothing to push
+
+
+def test_the_hook_scans_what_git_says_is_being_pushed(key_then_removed):
+    root, base, _, fix = key_then_removed
+    hook = ROOT / ".githooks" / "pre-push"
+    git(root, "update-ref", "refs/remotes/origin/main", base)  # the remote already has base
+    (root / "scripts").mkdir()
+    (root / "scripts" / "leak_guard.py").write_text(GUARD.read_text())  # left uncommitted
+    run = subprocess.run(["sh", str(hook), "origin", "x"], input=pre_push(fix, base), cwd=root,
+                         capture_output=True, text=True, timeout=60)
+    assert run.returncode == 1 and "OpenRouter key" in run.stderr
+
+
+def test_uncommitted_files_are_not_scanned(tmp_path):
+    commit(tmp_path, {"app/settings.py": "KEY = None\n"})
+    (tmp_path / "app" / "settings.py").write_text(f'KEY = "{FAKE_OPENROUTER}"\n')
+    (tmp_path / ".env").write_text(f"OPENROUTER_API_KEY={FAKE_OPENROUTER}\n")
+    git(tmp_path, "add", "app/settings.py")  # staged but not committed either
+    for args in ((), ("--history",)):
+        assert guard(tmp_path, *args).returncode == 0
 
 
 def test_not_a_git_checkout_is_an_error(tmp_path):
     assert guard(tmp_path).returncode == 2
 
 
-def test_pre_push_hook_runs_the_guard_and_is_executable_in_git():
-    hook = ROOT / ".githooks" / "pre-push"
-    assert "scripts/leak_guard.py" in hook.read_text(encoding="utf-8")
+def test_pre_push_hook_passes_stdin_to_the_guard_and_is_executable_in_git():
+    hook = (ROOT / ".githooks" / "pre-push").read_text(encoding="utf-8")
+    assert 'exec python3 "$root/scripts/leak_guard.py" --root "$root" --pre-push' in hook
     done = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-s", ".githooks/pre-push"],
                           capture_output=True, text=True, timeout=60)
     assert done.stdout.startswith("100755 "), done.stdout
+    run = subprocess.run(["sh", str(ROOT / ".githooks" / "pre-push"), "origin", "x"], input="",
+                         cwd=ROOT, capture_output=True, text=True, timeout=60)
+    assert run.returncode == 0 and "leak guard: clean" in run.stdout
 
 
 def test_local_config_files_are_ignored_by_git_and_docker():
