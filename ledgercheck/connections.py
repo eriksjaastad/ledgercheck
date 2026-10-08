@@ -37,7 +37,7 @@ Where settings come from (first match wins)
    ``doppler run -- ledgercheck judge --live --case <case_id>``.
 2. A ``.env`` file in the working directory: ``KEY=VALUE`` lines, ``#``
    comments, optional ``export`` and quotes. It never overrides a variable
-   that is already set.
+   that is already set, and lines it cannot parse are skipped.
 3. ``connections.local.toml`` in the working directory, or the file named by
    ``LEDGERCHECK_CONNECTIONS_FILE``. It may hold the key as well.
 
@@ -59,8 +59,9 @@ is retried up to 3 times, honouring ``Retry-After`` (capped at 30 s).
 Checking your setup
 -------------------
 ``ledgercheck connections`` prints the resolved settings and where each one
-came from. The key only shows as ``set (from env|.env|<file>)`` or
-``missing``.
+came from, and exits 2 if a setting is invalid. The key only shows as
+``set (from env|.env|<file>)`` or ``missing``. An invalid setting never
+stops the offline mock path; it stops a live run before any request.
 
 Not here on purpose: ``ledgercheck serve`` (``ledgercheck.web``) listens on a
 loopback socket and parses requests with ``urllib.parse``; it connects to
@@ -78,6 +79,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 import time
 import tomllib
@@ -120,6 +122,10 @@ SETTINGS: Mapping[str, tuple[str, tuple[str, ...]]] = {
 }
 _FILE_KEYS = {"provider", "api_key", "models", "base_url", "spend_cap_usd", "max_tokens", "prices"}
 _MTOK = Decimal(1_000_000)
+# NAME=value, NAME="value", NAME='value'; an unquoted value ends at " #".
+_DOTENV_LINE = re.compile(
+    r"""\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"""
+    r"""(?:"([^"]*)"|'([^']*)'|(.*?))\s*(?:\s#.*)?""")
 _WHERE_KEY = (f"export {API_KEY_ENV}, put it in .env, or set api_key in connections.local.toml "
               "(see ledgercheck connections --help)")
 
@@ -141,21 +147,19 @@ class TransportError(RuntimeError):
 
 
 def _read_dotenv(path: Path) -> dict[str, str]:
-    """``KEY=VALUE`` lines; ``#`` comments, ``export`` and surrounding quotes allowed."""
-    if not path.is_file():
+    """``KEY=VALUE`` lines with optional ``export``, quotes and `` # comment``.
+
+    Tolerant on purpose: ``.env`` is often shared with other tools, so a line
+    this parser does not understand is skipped, never an error.
+    """
+    if not (path.is_file() and os.access(path, os.R_OK)):
         return {}
     values = {}
-    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        name, sep, value = line.removeprefix("export ").partition("=")
-        if not sep or not name.strip():
-            raise ConnectionConfigError(f"{path} line {n}: expected KEY=VALUE")
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        values[name.strip()] = value
+    for line in path.read_bytes().decode("utf-8", errors="replace").splitlines():
+        m = _DOTENV_LINE.fullmatch(line)
+        if m:
+            name, double, single, bare = m.groups()
+            values[name] = next(v for v in (double, single, bare) if v is not None)
     return values
 
 
@@ -180,7 +184,7 @@ class _Sources:
     """The environment, then ``.env``, then the connections file. No repr: it holds keys."""
 
     def __init__(self, env: Mapping[str, str] | None, *, with_file: bool = True) -> None:
-        self.config, self.config_path = {}, None
+        self.config, self.config_path, self.problems = {}, None, []
         if env is not None:  # an explicit mapping is the whole configuration
             self.env, self.dotenv = env, {}
             return
@@ -189,7 +193,10 @@ class _Sources:
             return
         named = self.value(CONNECTIONS_FILE_ENV)
         self.config_path = Path(named) if named else DEFAULT_CONFIG
-        self.config = _read_config(self.config_path, required=bool(named))
+        try:
+            self.config = _read_config(self.config_path, required=bool(named))
+        except ConnectionConfigError as exc:  # reported by require_live and `connections`
+            self.problems.append(str(exc))
 
     def value(self, name: str) -> str | None:
         return (self.find(name) or (None, None))[0]
@@ -203,6 +210,8 @@ class _Sources:
         node: Any = self.config
         for part in path:
             node = node.get(part) if isinstance(node, Mapping) else None
+        if isinstance(node, str):
+            node = node.strip()
         if path and node is not None and node != "":
             return node, str(self.config_path)
         return None
@@ -220,6 +229,37 @@ def _decimal(value: Any, what: str) -> Decimal:
     if isinstance(value, bool) or not number.is_finite() or number < 0:
         raise ConnectionConfigError(f"{what} must be a finite number >= 0, got {value!r}")
     return number
+
+
+def _max_tokens(raw: Any) -> int:
+    text = str(DEFAULT_MAX_TOKENS if raw is None else raw)
+    if not text.isdigit() or int(text) <= 0:
+        raise ConnectionConfigError(f"max_tokens must be a whole number > 0, got {raw!r}")
+    return int(text)
+
+
+def _base_url(raw: Any) -> str:
+    url = str(raw or DEFAULT_BASE_URL).rstrip("/")
+    if not url.startswith("https://"):  # the key travels in a header
+        raise ConnectionConfigError(f"base_url must start with https://, got {url!r}")
+    return url
+
+
+def _cap(raw: Any) -> Decimal | None:
+    return None if raw is None else _decimal(raw, "spend_cap_usd")
+
+
+def _parsed(problems: list[str], parse: Callable[[Any], Any], raw: Any, fallback: Any) -> Any:
+    """``parse(raw)``, or ``fallback`` with the error added to ``problems``."""
+    try:
+        return parse(raw)
+    except ConnectionConfigError as exc:
+        problems.append(str(exc))
+    return fallback
+
+
+def _key_ok(key: str) -> bool:
+    return not any(c.isspace() or not c.isprintable() for c in key)
 
 
 def _prices(raw: Any) -> dict[str, tuple[Decimal, Decimal]]:
@@ -250,42 +290,43 @@ class Settings:
     config_file: Path | None
     api_key: str | None = field(default=None, repr=False)
     api_key_blank: bool = False
+    problems: tuple[str, ...] = ()  # invalid settings; only a live run refuses on them
 
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     """Resolve the settings. ``env`` defaults to the process environment plus the
     local files; an explicit mapping is used alone (no files are read).
+
+    Never raises on bad values: an invalid setting falls back to its default
+    and is listed in ``problems``, so the offline mock path cannot be broken
+    by local config. ``require_live`` refuses while there are problems.
     """
     src = _Sources(env)
+    problems = src.problems
     raw, sources = {}, {}
     for name, (var, path) in SETTINGS.items():
         found = src.find(var, path)
         raw[name], sources[name] = found if found else (None, "default")
     if "prices" in src.config:
         sources["prices"] = str(src.config_path)
-    provider = str(raw["provider"] or "mock").strip().lower()
-    cap = raw["spend_cap_usd"]
-    max_tokens = str(DEFAULT_MAX_TOKENS if raw["max_tokens"] is None else raw["max_tokens"])
-    max_tokens = int(max_tokens) if max_tokens.isdigit() else 0
-    if max_tokens <= 0:
-        raise ConnectionConfigError(
-            f"max_tokens must be a whole number > 0, got {raw['max_tokens']!r}")
-    base_url = str(raw["base_url"] or DEFAULT_BASE_URL).rstrip("/")
-    if not base_url.startswith("https://"):  # the key travels in a header
-        raise ConnectionConfigError(f"base_url must start with https://, got {base_url!r}")
+    key = None if raw["api_key"] is None else str(raw["api_key"])
+    if key is not None and not _key_ok(key):
+        problems.append(f"{API_KEY_ENV} (from {sources['api_key']}) contains whitespace or "
+                        "control characters; check for a stray space, quote or line break")
     return Settings(
-        provider=provider,
+        provider=str(raw["provider"] or "mock").strip().lower(),
         models={tier: str(raw[f"model_{tier}"]).strip()
                 for tier in ("small", "large") if raw[f"model_{tier}"]},
-        base_url=base_url,
-        spend_cap_usd=None if cap is None else _decimal(cap, "spend_cap_usd"),
-        max_tokens=max_tokens,
-        prices=_prices(src.config.get("prices", {})),
+        base_url=_parsed(problems, _base_url, raw["base_url"], DEFAULT_BASE_URL),
+        spend_cap_usd=_parsed(problems, _cap, raw["spend_cap_usd"], None),
+        max_tokens=_parsed(problems, _max_tokens, raw["max_tokens"], DEFAULT_MAX_TOKENS),
+        prices=_parsed(problems, _prices, src.config.get("prices", {}), {}),
         live_flag=src.env.get(ENV_FLAG) == "1",
         sources=sources,
         config_file=src.config_path,
-        api_key=None if raw["api_key"] is None else str(raw["api_key"]),
+        api_key=key,
         api_key_blank=src.blank(API_KEY_ENV),
+        problems=tuple(problems),
     )
 
 
@@ -295,6 +336,8 @@ def require_live(env: Mapping[str, str] | None = None) -> Settings:
     if not settings.live_flag:
         raise LiveLLMDisabled(f"live LLM calls are off: set {ENV_FLAG}=1 and {API_KEY_ENV} to "
                               "enable it")
+    if settings.problems:
+        raise ConnectionConfigError("; ".join(settings.problems))
     if settings.api_key is None:
         if settings.api_key_blank:
             raise LiveLLMDisabled(f"{ENV_FLAG}=1 but {API_KEY_ENV} is blank")
@@ -338,7 +381,10 @@ Opener = Callable[..., Any]  # urllib.request.urlopen(request, timeout=...)
 class OpenRouterTransport:
     """``(model, prompt) -> reply`` via ``POST {base_url}/chat/completions``, capped per run.
 
-    Build one per run (``totals`` is that run's spend). ``opener`` and
+    OpenRouter returns ``usage`` (``prompt_tokens``, ``completion_tokens`` and
+    ``cost`` in USD) on every non-streaming response; that cost is what is
+    added to ``totals``, with tokens times your prices as the fallback when it
+    is missing. Build one per run (``totals`` is that run's spend). ``opener`` and
     ``sleep`` default to ``urllib.request.urlopen`` and ``time.sleep``; tests
     inject fakes.
     """
@@ -349,6 +395,8 @@ class OpenRouterTransport:
                  sleep: Callable[[float], None] = time.sleep) -> None:
         if not settings.api_key:
             raise LiveLLMDisabled(f"{API_KEY_ENV} is not set: {_WHERE_KEY}")
+        if not _key_ok(settings.api_key):
+            raise ConnectionConfigError(f"{API_KEY_ENV} contains whitespace or control characters")
         if settings.spend_cap_usd is None or settings.spend_cap_usd <= 0:
             raise ConnectionConfigError(
                 "a live run needs a spend cap: set LEDGERCHECK_SPEND_CAP_USD or spend_cap_usd "
@@ -376,7 +424,7 @@ class OpenRouterTransport:
             raise SpendCapReached(f"spend cap: the next call could cost up to ${worst:.6f} but "
                                   f"${left:.6f} of ${self.totals.cap_usd} is left")
         data = self._post({"model": model, "messages": [{"role": "user", "content": prompt}],
-                           "max_tokens": self._max_tokens, "usage": {"include": True}})
+                           "max_tokens": self._max_tokens})
         try:
             reply = data["choices"][0]["message"]["content"]
             usage = data.get("usage") or {}
@@ -416,6 +464,9 @@ class OpenRouterTransport:
                 raise TransportError(self._redact(f"cannot reach {self.url}: {reason}")) from None
             except (UnicodeDecodeError, json.JSONDecodeError):
                 raise TransportError(f"response from {self.url} is not JSON") from None
+            except ValueError:  # e.g. http.client's "Invalid header value", which quotes the key
+                raise TransportError(f"could not send the request to {self.url}: invalid header "
+                                     "or URL (details withheld, they may contain the key)") from None
         raise AssertionError("unreachable")
 
     def _redact(self, text: str) -> str:
@@ -504,6 +555,8 @@ def describe(env: Mapping[str, str] | None = None) -> list[tuple[str, str, str]]
            else f"set (from {s.sources['api_key']})")
     if s.api_key is None and s.api_key_blank:
         key = "missing (blank)"
+    elif s.api_key is not None and not _key_ok(s.api_key):
+        key += ", invalid (whitespace or control characters)"
     langfuse = all(src.value(n) for n in (PUBLIC_KEY_ENV, SECRET_KEY_ENV))
     config = ("" if s.config_file is None
               else f"{s.config_file} ({'found' if s.config_file.is_file() else 'not found'})")
@@ -534,15 +587,13 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
 
 
 def run(args: argparse.Namespace) -> int:
-    """Print the resolved settings (exit 0), or the configuration error (exit 2)."""
-    try:
-        rows = describe()
-    except LiveLLMDisabled as exc:
-        print(f"connections: {exc}", file=sys.stderr)
-        return 2
-    for name, value, source in rows:
+    """Print the resolved settings; exit 2 if any setting is invalid, else 0."""
+    for name, value, source in describe():
         print(f"{name:<12} {value:<44} {source}".rstrip())
-    return 0
+    problems = load_settings().problems
+    for problem in problems:
+        print(f"connections: {problem}", file=sys.stderr)
+    return 2 if problems else 0
 
 
 def main(argv: list[str] | None = None) -> int:

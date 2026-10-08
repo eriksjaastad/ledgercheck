@@ -4,6 +4,7 @@ opener, no sockets), provider swapping by config, and the key never leaking."""
 import email.message
 import io
 import json
+import re
 import urllib.error
 import urllib.request
 from decimal import Decimal
@@ -123,8 +124,10 @@ def test_connections_file_env_names_another_file(local, tmp_path, monkeypatch):
     monkeypatch.setenv(CONNECTIONS_FILE_ENV, str(other))
     assert load_settings().provider == "openrouter"
     monkeypatch.setenv(CONNECTIONS_FILE_ENV, str(tmp_path / "missing.toml"))
+    assert "does not exist" in load_settings().problems[0]
+    monkeypatch.setenv(ENV_FLAG, "1")
     with pytest.raises(ConnectionConfigError, match="does not exist"):
-        load_settings()
+        connections.require_live()
 
 
 def test_the_live_flag_is_never_read_from_a_file(local):
@@ -135,19 +138,56 @@ def test_the_live_flag_is_never_read_from_a_file(local):
 
 
 @pytest.mark.parametrize("dotenv, toml, match", [
-    (f"{API_KEY_ENV} {KEY}\n", None, r"\.env line 1: expected KEY=VALUE"),
     (None, 'colour = "blue"\n', "unknown keys"),
+    (f"{ENV['max_tokens']}=lots\n", None, "max_tokens"),
     (None, "provider = \n", "connections.local.toml"),
     (None, "spend_cap_usd = -1\n", "spend_cap_usd must be a finite number"),
     (None, "max_tokens = 0\n", "max_tokens"),
     (None, f'[prices."{MODEL}"]\nprompt = 1\n', "exactly prompt and completion"),
     (None, 'base_url = "ftp://x"\n', "base_url"),
 ])
-def test_bad_config_is_a_clear_error_without_the_key(local, dotenv, toml, match):
-    local(dotenv=dotenv, toml=toml)
+def test_bad_config_stops_only_a_live_run(local, monkeypatch, capsys, dotenv, toml, match):
+    local(dotenv=f"{API_KEY_ENV}={KEY}\n" + (dotenv or ""), toml=toml)
+    assert any(re.search(match, p) for p in load_settings().problems)
+    assert type(connections.router()) is MockRouter  # the offline default still works
+    assert cli_main(["connections"]) == 2
+    assert re.search(match, capsys.readouterr().err)
+    monkeypatch.setenv(ENV_FLAG, "1")
     with pytest.raises(ConnectionConfigError, match=match) as exc:
-        load_settings()
+        connections.require_live()
     assert KEY not in str(exc.value)
+
+
+JUNK_DOTENV = (b"junk line\n=no name\n\xff\xfe not utf-8\nexport\n[section]\n"
+               b"LEDGERCHECK_MAX_TOKENS=lots\nLANGFUSE_PUBLIC_KEY=pk-only\n")
+
+
+def test_a_stray_dotenv_never_breaks_the_offline_default(local, capsys):
+    from ledgercheck import web
+    from ledgercheck.observability import NullTracer
+
+    (local() / ".env").write_bytes(JUNK_DOTENV)
+    assert cli_main(["judge"]) == judge.EXIT_PASS
+    assert capsys.readouterr().out.rstrip().endswith("PASS")
+    assert type(connections.tracer()) is NullTracer
+    assert type(connections.router()) is MockRouter
+    server = web.make_server(connections.run_store(local() / "runs"), "127.0.0.1", 0)
+    server.server_close()
+
+
+def test_dotenv_parsing_rules(local):
+    root = local(dotenv=(
+        "# comment\n"
+        "  export A=plain value # trailing comment\n"
+        "B=\"quoted # kept\" # dropped\n"
+        "C='single'\n"
+        "D=pass#word\n"
+        "E=\n"
+        "not a setting\n"
+        "F = spaced\t# tab comment\n"))
+    assert connections._read_dotenv(root / ".env") == {
+        "A": "plain value", "B": "quoted # kept", "C": "single", "D": "pass#word", "E": "",
+        "F": "spaced"}
 
 
 # --- the gate and the key ----------------------------------------------------------
@@ -166,6 +206,41 @@ def test_key_from_any_source_opens_the_gate_and_never_shows(local, monkeypatch, 
     local(dotenv=f"{API_KEY_ENV}={KEY}\n")
     assert "api key      set (from .env)" in "\n".join(
         f"{n:<12} {v}" for n, v, _ in connections.describe())
+
+
+def test_file_key_is_stripped_and_blank_means_missing(local, monkeypatch):
+    monkeypatch.setenv(ENV_FLAG, "1")
+    local(toml=f'api_key = "  {KEY}  "\n')
+    assert connections.require_live().api_key == KEY
+    local(toml='api_key = " \\t "\n')
+    assert load_settings().api_key is None
+    with pytest.raises(LiveLLMDisabled, match=f"{API_KEY_ENV} is not set"):
+        connections.require_live()
+
+
+@pytest.mark.parametrize("bad", [f"{KEY}\n", f"{KEY[:8]} {KEY[8:]}", f"{KEY}\x07x"])
+def test_key_with_whitespace_or_control_chars_is_refused_without_echo(local, monkeypatch,
+                                                                      capsys, bad):
+    monkeypatch.setenv(ENV_FLAG, "1")
+    monkeypatch.setenv(API_KEY_ENV, bad)
+    if bad.strip() == KEY:  # surrounding whitespace is stripped, so this one is fine
+        assert connections.require_live().api_key == KEY
+        return
+    with pytest.raises(ConnectionConfigError, match="whitespace or control characters") as exc:
+        connections.require_live()
+    assert KEY[8:] not in str(exc.value)
+    assert cli_main(["connections"]) == 2
+    out = capsys.readouterr()
+    assert "invalid" in out.out and KEY[8:] not in out.out + out.err
+    with pytest.raises(ConnectionConfigError):
+        OpenRouterTransport(live_settings(**{API_KEY_ENV: "x y"}), opener=FakeOpener())
+
+
+def test_invalid_header_errors_never_carry_the_key():
+    leak = ValueError(f"Invalid header value b'Bearer {KEY}\\r\\n'")
+    with pytest.raises(TransportError, match="details withheld") as exc:
+        OpenRouterTransport(live_settings(), opener=FakeOpener(leak))(MODEL, "x")
+    assert KEY not in str(exc.value) and exc.value.__cause__ is None
 
 
 def test_missing_key_names_every_way_to_supply_it():
@@ -211,8 +286,7 @@ def test_transport_posts_chat_completions_and_counts_reported_cost():
     assert request.get_method() == "POST"
     assert request.get_header("Authorization") == f"Bearer {KEY}"
     assert json.loads(request.data) == {
-        "model": MODEL, "messages": [{"role": "user", "content": "hello"}],
-        "max_tokens": 100, "usage": {"include": True}}
+        "model": MODEL, "messages": [{"role": "user", "content": "hello"}], "max_tokens": 100}
     assert opener.timeouts == [connections.TIMEOUT_S]
     t = transport.totals
     assert (t.calls, t.prompt_tokens, t.completion_tokens, t.cost_usd) == (
