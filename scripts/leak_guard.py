@@ -20,16 +20,23 @@ scans every commit in each pushed range:
 
 Deleting a remote branch scans nothing.
 
-For every file a scanned commit adds or changes, it checks:
+For every file a scanned commit adds or changes, and for each scanned
+commit's message (and a pushed annotated tag's message), it checks:
 
 - the name: a ``.env`` or ``.env.*`` other than ``.env.example``, or a
   ``connections.local*``, is for your machine only;
 - an API-key-shaped string (OpenRouter ``sk-or-v1-...``, other ``sk-...``
-  keys, Langfuse ``pk-lf-``/``sk-lf-`` keys) anywhere;
+  keys, Langfuse ``pk-lf-``/``sk-lf-`` keys) anywhere, in any encoding: the
+  raw bytes are searched (UTF-8, Latin-1, binary), also with NUL bytes
+  removed (UTF-16/UTF-32 text) and with escapes such as ``\\n``, ``\\u0022``
+  or ``%3D`` replaced by spaces. No file is skipped for its encoding;
 - ``api_key = "<value>"`` style assignments (also ``secret``, ``token``,
   ``password``) with a long value that is not an obvious placeholder;
 - in ``.env.example`` and ``connections.example.toml``: any non-empty key
   value that is not a placeholder, and any URL outside the allowed hosts.
+
+Not covered: keys split across strings or encoded (base64, encrypted),
+Git LFS objects (only their pointer files are in git), and refs/notes.
 
 Placeholders are values containing one of ``ALLOWED_MARKERS``. Findings are
 printed as ``[commit] file:line: what`` with the match redacted. Exit 0 when
@@ -46,13 +53,19 @@ import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 
-# A key starts a token: never inside a word such as "risk-assessment-...".
-_START = r"(?<![A-Za-z0-9_-])"
+# Key shapes, matched on raw bytes. The OpenRouter and Langfuse prefixes are
+# distinctive, so they match anywhere, even right after a letter ("\\nsk-or-v1-",
+# "%3Dsk-or-v1-", "foo_sk-lf-"). A Langfuse key body must contain a digit (real
+# ones are hex UUIDs), so a word like "desk-lf-layout-notes-..." is not a key. The
+# generic sk- shape must start a token so "risk-assessment-..." is not a key; it is
+# also matched on a copy with escapes replaced by spaces (see ESCAPES).
 KEY_PATTERNS = (
-    ("OpenRouter key", re.compile(_START + r"sk-or-v1-[A-Za-z0-9]{20,}")),
-    ("API key", re.compile(_START + r"sk-(?!or-v1-)(?:ant-|proj-)?[A-Za-z0-9_-]{32,}")),
-    ("Langfuse key", re.compile(_START + r"[ps]k-lf-[A-Za-z0-9-]{20,}")),
+    ("OpenRouter key", re.compile(rb"sk-or-v1-[A-Za-z0-9]{20,}")),
+    ("API key", re.compile(rb"(?<![A-Za-z0-9_-])sk-(?!or-v1-)(?:ant-|proj-)?[A-Za-z0-9_-]{32,}")),
+    ("Langfuse key", re.compile(rb"[ps]k-lf-(?=[A-Za-z-]*[0-9])[A-Za-z0-9-]{20,}")),
 )
+# Escapes a key can directly follow in JSON, source strings and URLs.
+ESCAPES = re.compile(rb"""\\(?:[nrtbfv0"'\\/]|u[0-9A-Fa-f]{4}|x[0-9A-Fa-f]{2})|%[0-9A-Fa-f]{2}""")
 ASSIGNMENT = re.compile(
     r"""(?i)\b[\w-]*(api[_-]?key|secret|token|password)\s*[:=]\s*["']([^"'\s]{16,})["']""")
 EXAMPLE_FILES = (".env.example", "connections.example.toml")
@@ -146,7 +159,7 @@ def read_blobs(root: Path, shas: list[str]) -> dict[str, bytes]:
 
 
 def check_name(name: str) -> str | None:
-    base = PurePosixPath(name).name
+    base = PurePosixPath(name).name.lower()  # ".ENV" is the same file on many filesystems
     if (base == ".env" or base.startswith(".env.")) and base != ".env.example":
         return "local .env file is committed"
     if base.startswith("connections.local"):
@@ -154,14 +167,30 @@ def check_name(name: str) -> str | None:
     return None
 
 
+def key_findings(data: bytes) -> list[tuple[int, str]]:
+    """``(line, finding)`` for key-shaped strings in ``data``, whatever its encoding.
+
+    Matched on the raw bytes (UTF-8, Latin-1, binary), on a copy with NUL bytes
+    removed (UTF-16 and UTF-32 text, at any alignment, since keys are ASCII), and
+    on both again with escape sequences replaced by spaces.
+    """
+    views = [data] + ([data.replace(b"\0", b"")] if b"\0" in data else [])
+    views += [ESCAPES.sub(b" ", view) for view in views]
+    found: dict[tuple[str, str], int] = {}
+    for view in views:
+        for what, pattern in KEY_PATTERNS:
+            for m in pattern.finditer(view):
+                key = m.group().decode("ascii")
+                if not _placeholder(key):
+                    found.setdefault((what, key), view.count(b"\n", 0, m.start()) + 1)
+    return sorted((line, f"{what} {_redact(key)}") for (what, key), line in found.items())
+
+
 def check_text(name: str, text: str) -> list[tuple[int, str]]:
-    """``(line, finding)`` pairs for one file's content; matches are redacted."""
+    """``(line, finding)`` for assignments and example-file values; matches are redacted."""
     findings = []
     example = PurePosixPath(name).name in EXAMPLE_FILES
     for n, line in enumerate(text.splitlines(), 1):
-        for what, pattern in KEY_PATTERNS:
-            findings += [(n, f"{what} {_redact(m.group())}") for m in pattern.finditer(line)
-                         if not _placeholder(m.group())]
         findings += [(n, f"{m.group(1)} assignment {_redact(m.group(2))}")
                      for m in ASSIGNMENT.finditer(line) if not _placeholder(m.group(2))]
         if not example or line.lstrip().startswith("#"):
@@ -177,13 +206,34 @@ def check_text(name: str, text: str) -> list[tuple[int, str]]:
     return findings
 
 
+COMMIT_MESSAGE, TAG_MESSAGE = "(commit message)", "(tag message)"
+
+
+def pushed_tags(root: Path, lines: list[str]) -> list[str]:
+    """Annotated tag objects being pushed: their messages are published too."""
+    tags = []
+    for line in lines:
+        parts = line.split()
+        if len(parts) == 4 and not ZERO_SHA.fullmatch(parts[1]) \
+                and git(root, "cat-file", "-t", parts[1]).strip() == b"tag":
+            tags.append(parts[1])
+    return tags
+
+
 def files_to_scan(root: Path, mode: str, stdin_lines: list[str]) -> list[tuple[str, str, str]]:
-    """``(label, path, blob sha)`` for the mode: ``head``, ``history`` or ``pre-push``."""
+    """``(label, path, object sha)`` for the mode: ``head``, ``history`` or ``pre-push``.
+
+    Besides files, each scanned commit's own object (its message) is included.
+    """
     if mode == "head":
-        return [("", path, sha) for path, sha in head_files(root)]
+        head = git(root, "rev-parse", "HEAD").decode().strip()
+        return [("", path, sha) for path, sha in head_files(root)] + [("", COMMIT_MESSAGE, head)]
     commits = (git(root, "rev-list", "HEAD").decode().split() if mode == "history"
                else pushed_commits(root, stdin_lines))
-    return [(f"{c[:12]} ", path, sha) for c in commits for path, sha in changed_files(root, c)]
+    tags = pushed_tags(root, stdin_lines) if mode == "pre-push" else []
+    return ([(f"{c[:12]} ", path, sha) for c in commits for path, sha in changed_files(root, c)]
+            + [(f"{c[:12]} ", COMMIT_MESSAGE, c) for c in commits]
+            + [(f"{t[:12]} ", TAG_MESSAGE, t) for t in tags])
 
 
 def scan(root: Path, files: list[tuple[str, str, str]]) -> list[str]:
@@ -196,11 +246,11 @@ def scan(root: Path, files: list[tuple[str, str, str]]) -> list[str]:
         seen.add((name, sha))
         if (why := check_name(name)) is not None:
             problems.append(f"{label}{name}: {why}")
-        try:
-            text = blobs[sha].decode("utf-8")
-        except UnicodeDecodeError:
-            continue  # binary
-        problems += [f"{label}{name}:{n}: {finding}" for n, finding in check_text(name, text)]
+        data = blobs[sha]  # never skipped for its encoding: binary and UTF-16 included
+        findings = key_findings(data)
+        for view in [data] + ([data.replace(b"\0", b"")] if b"\0" in data else []):
+            findings += check_text(name, view.decode("utf-8", "replace"))
+        problems += [f"{label}{name}:{n}: {finding}" for n, finding in sorted(set(findings))]
     return problems
 
 

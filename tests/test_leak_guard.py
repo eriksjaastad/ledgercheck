@@ -13,6 +13,7 @@ ZERO = "0" * 40
 FAKE_OPENROUTER = "sk-or-v1-" + "a1B2" * 10
 FAKE_GENERIC = "sk-" + "Zy9x" * 10
 FAKE_VALUE = "q8" * 12
+FAKE_LANGFUSE = "sk-lf-" + "c3D4" * 6
 # Temp repos must not run your own git hooks or need signing keys.
 GIT = ["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false",
        "-c", "user.name=Leak Test", "-c", "user.email=leak@test.invalid"]
@@ -73,17 +74,81 @@ SLUGS = ("risk-assessment-for-vendor-invoices-and-approvals",
          "desk-lf-layout-notes-for-the-finance-office-team")
 
 
+def commit_bytes(root: Path, name: str, data: bytes, message: str = "change") -> str:
+    if not (root / ".git").exists():
+        git(root, "init", "-q")
+    (root / name).parent.mkdir(parents=True, exist_ok=True)
+    (root / name).write_bytes(data)
+    git(root, "add", name)
+    return commit(root, {}, message)
+
+
 def test_hyphenated_words_are_not_keys(tmp_path):
-    commit(tmp_path, {"docs/notes.md": "".join(f"See {s} and docs/{s}.md\n" for s in SLUGS)})
-    done = guard(tmp_path)
+    text = "".join(f"See {s}, docs/{s}.md, \"line\\n{s}\" and q=%3D{s}\n" for s in SLUGS)
+    commit(tmp_path, {"docs/notes.md": text})
+    commit_bytes(tmp_path, "docs/notes-utf16.txt", text.encode("utf-16"))
+    done = guard(tmp_path, "--history")
     assert done.returncode == 0, done.stderr
+
+
+def blob_cases():
+    key = FAKE_OPENROUTER.encode()
+    return {
+        "latin-1 stray byte": b"caf\xe9 au lait\nOPENROUTER_API_KEY=" + key + b"\n",
+        "utf-16 with BOM": f"note\nkey: {FAKE_GENERIC}\n".encode("utf-16"),
+        "utf-16-be, no BOM": f"note\nkey: {FAKE_LANGFUSE}\n".encode("utf-16-be"),
+        "binary blob": b"SQLite format 3\x00\x10\x00\x01\x01" + bytes(range(256)) + key
+                       + b"\x00\xff\xfe" + bytes(range(255, -1, -1)),
+        "utf-16 at an odd offset in binary": b"\x89PNG\r\n\x1a\x00\x07"
+                                             + FAKE_OPENROUTER.encode("utf-16-le") + b"\xff",
+    }
+
+
+@pytest.mark.parametrize("case", list(blob_cases()))
+def test_keys_are_found_in_any_encoding_and_in_binary_blobs(tmp_path, case):
+    commit_bytes(tmp_path, "data/blob.bin", blob_cases()[case])
+    done = guard(tmp_path)
+    assert done.returncode == 1 and "data/blob.bin:" in done.stderr, done.stderr
+    for key in (FAKE_OPENROUTER, FAKE_GENERIC, FAKE_LANGFUSE):
+        assert key not in done.stderr
+
+
+ESCAPED = ('{{"a": "line\\n{key}"}}\n', '{{"a": "tab\\t{key}"}}\n', '{{"a": "\\u0022{key}"}}\n',
+           "https://x.invalid/cb?token%3D{key}\n", "x=%22{key}%22\n")
+
+
+@pytest.mark.parametrize("text, key", [
+    *((t, k) for t in ESCAPED for k in (FAKE_OPENROUTER, FAKE_GENERIC, FAKE_LANGFUSE)),
+    # The generic sk- shape must start a token (snake_case words); the prefixed ones need not.
+    ("export foo_{key}\n", FAKE_OPENROUTER), ("export foo_{key}\n", FAKE_LANGFUSE),
+])
+def test_keys_right_after_escapes_or_letters_are_found(tmp_path, text, key):
+    commit(tmp_path, {"app/data.json": text.format(key=key)})
+    done = guard(tmp_path)
+    assert done.returncode == 1 and "app/data.json:1:" in done.stderr, done.stderr
+    assert key not in done.stderr
+
+
+def test_commit_and_tag_messages_are_scanned(tmp_path):
+    base = commit(tmp_path, {"README.md": "hello\n"}, "base")
+    leaky = commit(tmp_path, {"README.md": "hello again\n"}, f"rotate {FAKE_OPENROUTER}")
+    done = guard(tmp_path, "--history")
+    assert done.returncode == 1 and f"{leaky[:12]} (commit message):" in done.stderr
+    assert guard(tmp_path, "--pre-push", stdin=pre_push(leaky, base)).returncode == 1
+    assert guard(tmp_path).returncode == 1  # HEAD's own message
+    clean = commit(tmp_path, {"README.md": "bye\n"}, "clean")
+    git(tmp_path, "tag", "-a", "v1", "-m", f"release notes {FAKE_LANGFUSE}", clean)
+    tag = git(tmp_path, "rev-parse", "v1")
+    done = guard(tmp_path, "--pre-push", stdin=f"refs/tags/v1 {tag} refs/tags/v1 {ZERO}\n")
+    assert done.returncode == 1 and "(tag message)" in done.stderr
+    assert FAKE_LANGFUSE not in done.stderr and FAKE_OPENROUTER not in done.stderr
 
 
 @pytest.mark.parametrize("line", [
     "{key}\n", "OPENROUTER_API_KEY={key}\n", 'value: "{key}"\n', "value: '{key}'\n",
     "export KEY {key}\n", "\t{key} trailing\n",
 ])
-@pytest.mark.parametrize("key", [FAKE_OPENROUTER, FAKE_GENERIC, "sk-lf-" + "c3D4" * 6])
+@pytest.mark.parametrize("key", [FAKE_OPENROUTER, FAKE_GENERIC, FAKE_LANGFUSE])
 def test_keys_at_a_token_start_still_fail(tmp_path, line, key):
     commit(tmp_path, {"app/config.txt": line.format(key=key)})
     done = guard(tmp_path)
@@ -93,6 +158,7 @@ def test_keys_at_a_token_start_still_fail(tmp_path, line, key):
 
 @pytest.mark.parametrize("name, text, expect", [
     (".env", "X=1\n", ".env: local .env file is committed"),
+    ("deploy/.ENV", "X=1\n", "deploy/.ENV: local .env file is committed"),
     ("config/.env.production", "X=1\n", "local .env file is committed"),
     ("connections.local.toml", 'provider = "mock"\n', "local connections file is committed"),
     ("app/settings.py", f'KEY = "{FAKE_OPENROUTER}"\n', "app/settings.py:1: OpenRouter key"),
