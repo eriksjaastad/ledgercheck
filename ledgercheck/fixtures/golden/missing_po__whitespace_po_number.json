@@ -1,0 +1,88 @@
+{
+  "case_id": "missing_po__whitespace_po_number",
+  "description": "PO field present but only spaces: treated as missing.",
+  "tags": [
+    "missing_po",
+    "blank_field"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "INV-NW-20517",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "   ",
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "6",
+          "unit_price": "42.50",
+          "amount": "255.00"
+        }
+      ],
+      "subtotal": "255.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "21.04",
+      "total": "276.04"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INV-NW-20517",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "   ",
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "6",
+          "unit_price": "42.50",
+          "amount": "255.00"
+        }
+      ],
+      "subtotal": "255.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "21.04",
+      "total": "276.04"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-PO-REQUIRED",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "flag",
+      "hits": [
+        {
+          "rule_id": "APR-PO-MISSING",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        },
+        {
+          "rule_id": "POL-PO-REQUIRED",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,164 @@
+{
+  "case_id": "clean__many_lines_fractional_quantities",
+  "description": "Eight lines with fractional quantities (12.5 kg, 2.5 hundreds) adding up exactly to 1156.67; tax 95.43 (95.425275, half-up): long but clean.",
+  "tags": [
+    "clean"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "INV-NW-20527",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-10-02",
+      "due_date": "2026-11-01",
+      "currency": "USD",
+      "po_number": "PO-4500-1326",
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "12",
+          "unit_price": "42.50",
+          "amount": "510.00",
+          "sku": "NW-PAP-2010"
+        },
+        {
+          "description": "Black toner cartridge 58A",
+          "quantity": "3",
+          "unit_price": "89.99",
+          "amount": "269.97",
+          "sku": "NW-TON-058A"
+        },
+        {
+          "description": "Whiteboard markers, assorted (12 pk)",
+          "quantity": "5",
+          "unit_price": "11.40",
+          "amount": "57.00",
+          "sku": "NW-MRK-0012"
+        },
+        {
+          "description": "Ergonomic chair mat",
+          "quantity": "2",
+          "unit_price": "64.00",
+          "amount": "128.00",
+          "sku": "NW-MAT-0003"
+        },
+        {
+          "description": "Packing tape, 48 mm (case of 36 rolls)",
+          "quantity": "1",
+          "unit_price": "74.95",
+          "amount": "74.95",
+          "sku": "NW-TAP-0036"
+        },
+        {
+          "description": "Kraft wrapping paper, per kg",
+          "quantity": "12.5",
+          "unit_price": "3.20",
+          "amount": "40.00",
+          "sku": "NW-KRF-0001"
+        },
+        {
+          "description": "Desk organizer, mesh",
+          "quantity": "4",
+          "unit_price": "14.25",
+          "amount": "57.00",
+          "sku": "NW-ORG-0007"
+        },
+        {
+          "description": "Shelf labels, per hundred",
+          "quantity": "2.5",
+          "unit_price": "7.90",
+          "amount": "19.75",
+          "sku": "NW-LBL-0100"
+        }
+      ],
+      "subtotal": "1156.67",
+      "tax_rate": "0.0825",
+      "tax_amount": "95.43",
+      "total": "1252.10"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INV-NW-20527",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-10-02",
+      "due_date": "2026-11-01",
+      "currency": "USD",
+      "po_number": "PO-4500-1326",
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "12",
+          "unit_price": "42.50",
+          "amount": "510.00",
+          "sku": "NW-PAP-2010"
+        },
+        {
+          "description": "Black toner cartridge 58A",
+          "quantity": "3",
+          "unit_price": "89.99",
+          "amount": "269.97",
+          "sku": "NW-TON-058A"
+        },
+        {
+          "description": "Whiteboard markers, assorted (12 pk)",
+          "quantity": "5",
+          "unit_price": "11.40",
+          "amount": "57.00",
+          "sku": "NW-MRK-0012"
+        },
+        {
+          "description": "Ergonomic chair mat",
+          "quantity": "2",
+          "unit_price": "64.00",
+          "amount": "128.00",
+          "sku": "NW-MAT-0003"
+        },
+        {
+          "description": "Packing tape, 48 mm (case of 36 rolls)",
+          "quantity": "1",
+          "unit_price": "74.95",
+          "amount": "74.95",
+          "sku": "NW-TAP-0036"
+        },
+        {
+          "description": "Kraft wrapping paper, per kg",
+          "quantity": "12.5",
+          "unit_price": "3.20",
+          "amount": "40.00",
+          "sku": "NW-KRF-0001"
+        },
+        {
+          "description": "Desk organizer, mesh",
+          "quantity": "4",
+          "unit_price": "14.25",
+          "amount": "57.00",
+          "sku": "NW-ORG-0007"
+        },
+        {
+          "description": "Shelf labels, per hundred",
+          "quantity": "2.5",
+          "unit_price": "7.90",
+          "amount": "19.75",
+          "sku": "NW-LBL-0100"
+        }
+      ],
+      "subtotal": "1156.67",
+      "tax_rate": "0.0825",
+      "tax_amount": "95.43",
+      "total": "1252.10"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": []
+    }
+  }
+}

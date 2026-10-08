@@ -1,0 +1,77 @@
+{
+  "case_id": "unknown_vendor__no_keyword_overlap",
+  "description": "Unknown vendor sharing no keyword with any vendor record: nothing retrieved and no 'closest on file' hint.",
+  "tags": [
+    "unknown_vendor"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "ZQW-0042",
+      "vendor_name": "Zephyr Quantum Widgets",
+      "vendor_id": null,
+      "invoice_date": "2026-09-30",
+      "due_date": "2026-10-30",
+      "currency": "USD",
+      "po_number": "PO-4500-1316",
+      "line_items": [
+        {
+          "description": "Widget assembly kit",
+          "quantity": "10",
+          "unit_price": "30.00",
+          "amount": "300.00"
+        }
+      ],
+      "subtotal": "300.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "24.75",
+      "total": "324.75"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "ZQW-0042",
+      "vendor_name": "Zephyr Quantum Widgets",
+      "vendor_id": null,
+      "invoice_date": "2026-09-30",
+      "due_date": "2026-10-30",
+      "currency": "USD",
+      "po_number": "PO-4500-1316",
+      "line_items": [
+        {
+          "description": "Widget assembly kit",
+          "quantity": "10",
+          "unit_price": "30.00",
+          "amount": "300.00"
+        }
+      ],
+      "subtotal": "300.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "24.75",
+      "total": "324.75"
+    },
+    "policy": {
+      "retrieved": [],
+      "hits": [
+        {
+          "rule_id": "POL-VENDOR-UNKNOWN",
+          "severity": "error",
+          "field": "vendor_name",
+          "expected": null,
+          "observed": "Zephyr Quantum Widgets"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "POL-VENDOR-UNKNOWN",
+          "severity": "error",
+          "field": "vendor_name",
+          "expected": null,
+          "observed": "Zephyr Quantum Widgets"
+        }
+      ]
+    }
+  }
+}

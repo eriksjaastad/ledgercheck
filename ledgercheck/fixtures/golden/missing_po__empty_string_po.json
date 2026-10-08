@@ -1,0 +1,90 @@
+{
+  "case_id": "missing_po__empty_string_po",
+  "description": "PO field is an empty string (not null, not spaces): still a missing PO to both stages.",
+  "tags": [
+    "missing_po",
+    "blank_field"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "TPC-5607",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-25",
+      "due_date": "2026-10-25",
+      "currency": "USD",
+      "po_number": "",
+      "line_items": [
+        {
+          "description": "Foam board sign, 18x24 in",
+          "quantity": "6",
+          "unit_price": "18.25",
+          "amount": "109.50",
+          "sku": "TP-FB-1824"
+        }
+      ],
+      "subtotal": "109.50",
+      "tax_rate": "0.06",
+      "tax_amount": "6.57",
+      "total": "116.07"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "TPC-5607",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-25",
+      "due_date": "2026-10-25",
+      "currency": "USD",
+      "po_number": "",
+      "line_items": [
+        {
+          "description": "Foam board sign, 18x24 in",
+          "quantity": "6",
+          "unit_price": "18.25",
+          "amount": "109.50",
+          "sku": "TP-FB-1824"
+        }
+      ],
+      "subtotal": "109.50",
+      "tax_rate": "0.06",
+      "tax_amount": "6.57",
+      "total": "116.07"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1004",
+        "tax:US-PRINT-6"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-PO-REQUIRED",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "flag",
+      "hits": [
+        {
+          "rule_id": "APR-PO-MISSING",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        },
+        {
+          "rule_id": "POL-PO-REQUIRED",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        }
+      ]
+    }
+  }
+}

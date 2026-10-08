@@ -1,0 +1,81 @@
+{
+  "case_id": "blank_field__whitespace_vendor_id",
+  "description": "Vendor id is whitespace: treated as absent and matched by name.",
+  "tags": [
+    "blank_field",
+    "vendor_alias"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "BPL-88301",
+      "vendor_name": "Bluepeak Logistics",
+      "vendor_id": "  ",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1261",
+      "line_items": [
+        {
+          "description": "LTL freight Dallas to Denver",
+          "quantity": "1",
+          "unit_price": "1200.00",
+          "amount": "1200.00"
+        }
+      ],
+      "subtotal": "1200.00",
+      "tax_rate": "0",
+      "tax_amount": "0.00",
+      "total": "1200.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "BPL-88301",
+      "vendor_name": "Bluepeak Logistics",
+      "vendor_id": "  ",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1261",
+      "line_items": [
+        {
+          "description": "LTL freight Dallas to Denver",
+          "quantity": "1",
+          "unit_price": "1200.00",
+          "amount": "1200.00"
+        }
+      ],
+      "subtotal": "1200.00",
+      "tax_rate": "0",
+      "tax_amount": "0.00",
+      "total": "1200.00"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1002",
+        "tax:US-FREIGHT-EXEMPT"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-VENDOR-NO-ID",
+          "severity": "info",
+          "field": "vendor_id",
+          "expected": "V-1002",
+          "observed": null
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": [
+        {
+          "rule_id": "POL-VENDOR-NO-ID",
+          "severity": "info",
+          "field": "vendor_id",
+          "expected": "V-1002",
+          "observed": null
+        }
+      ]
+    }
+  }
+}

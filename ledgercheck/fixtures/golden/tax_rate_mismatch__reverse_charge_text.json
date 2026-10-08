@@ -1,0 +1,99 @@
+{
+  "case_id": "tax_rate_mismatch__reverse_charge_text",
+  "description": "German reverse-charge text (0% USt, 'Steuerschuldnerschaft des Leistungsempfängers'): the corpus has no reverse-charge code, so 0% vs DE-VAT-STD's 19% (232.28 on 1222.50) escalates.",
+  "tags": [
+    "tax_rate_mismatch",
+    "tax_mismatch",
+    "weird_formatting",
+    "foreign_currency"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "RE-2026-00460",
+      "vendor_name": "Kestrel Industrial GmbH",
+      "vendor_id": "V-2001",
+      "invoice_date": "2026-09-29",
+      "due_date": "2026-10-29",
+      "currency": "EUR",
+      "po_number": "4500-1314",
+      "line_items": [
+        {
+          "description": "Pressure gauge 0-16 bar",
+          "quantity": "25",
+          "unit_price": "48.90",
+          "amount": "1222.50",
+          "sku": "KI-PG-016"
+        }
+      ],
+      "subtotal": "1222.50",
+      "tax_rate": "0",
+      "tax_amount": "0.00",
+      "total": "1222.50"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "RE-2026-00460",
+      "vendor_name": "Kestrel Industrial GmbH",
+      "vendor_id": "V-2001",
+      "invoice_date": "2026-09-29",
+      "due_date": "2026-10-29",
+      "currency": "EUR",
+      "po_number": "4500-1314",
+      "line_items": [
+        {
+          "description": "Pressure gauge 0-16 bar",
+          "quantity": "25",
+          "unit_price": "48.90",
+          "amount": "1222.50",
+          "sku": "KI-PG-016"
+        }
+      ],
+      "subtotal": "1222.50",
+      "tax_rate": "0",
+      "tax_amount": "0.00",
+      "total": "1222.50"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-2001",
+        "tax:DE-VAT-STD"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-TAX-RATE",
+          "severity": "error",
+          "field": "tax_rate",
+          "expected": "0.19",
+          "observed": "0"
+        },
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "232.28",
+          "observed": "0.00"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "POL-TAX-RATE",
+          "severity": "error",
+          "field": "tax_rate",
+          "expected": "0.19",
+          "observed": "0"
+        },
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "232.28",
+          "observed": "0.00"
+        }
+      ]
+    }
+  }
+}

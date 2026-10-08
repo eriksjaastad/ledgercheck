@@ -1,0 +1,44 @@
+[
+  {
+    "chunk_id": "tax:US-TX-STD",
+    "kind": "tax",
+    "code": "US-TX-STD",
+    "rate": "0.0825",
+    "text": "US-TX-STD: Texas state plus local sales tax, 8.25% of the taxable subtotal, rounded half-up to the cent on the invoice subtotal."
+  },
+  {
+    "chunk_id": "tax:US-FREIGHT-EXEMPT",
+    "kind": "tax",
+    "code": "US-FREIGHT-EXEMPT",
+    "rate": "0",
+    "text": "US-FREIGHT-EXEMPT: separately stated interstate freight charges are not taxable; tax must be zero."
+  },
+  {
+    "chunk_id": "tax:US-WA-SVC",
+    "kind": "tax",
+    "code": "US-WA-SVC",
+    "rate": "0.0725",
+    "text": "US-WA-SVC: Washington professional services tax, 7.25% of the subtotal, rounded half-up to the cent on the invoice subtotal."
+  },
+  {
+    "chunk_id": "tax:US-PRINT-6",
+    "kind": "tax",
+    "code": "US-PRINT-6",
+    "rate": "0.06",
+    "text": "US-PRINT-6: 6% sales tax on printed goods, computed on the invoice subtotal. Per-line rounding can differ by one cent and is a warning, not an error."
+  },
+  {
+    "chunk_id": "tax:DE-VAT-STD",
+    "kind": "tax",
+    "code": "DE-VAT-STD",
+    "rate": "0.19",
+    "text": "DE-VAT-STD: German standard VAT (Umsatzsteuer), 19% of the net amount."
+  },
+  {
+    "chunk_id": "tax:UK-VAT-STD",
+    "kind": "tax",
+    "code": "UK-VAT-STD",
+    "rate": "0.20",
+    "text": "UK-VAT-STD: UK standard-rate VAT, 20% of the net amount."
+  }
+]

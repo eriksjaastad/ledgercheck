@@ -1,0 +1,68 @@
+[
+  {
+    "chunk_id": "vendor:V-1001",
+    "kind": "vendor",
+    "vendor_id": "V-1001",
+    "name": "Northwind Office Supply",
+    "aliases": ["Northwind Office Supply Inc"],
+    "currency": "USD",
+    "tax_code": "US-TX-STD",
+    "po_required": true,
+    "text": "Northwind Office Supply (V-1001) ships office paper, toner and desk accessories from Austin, Texas. Bills monthly in USD against a purchase order; Texas sales tax applies."
+  },
+  {
+    "chunk_id": "vendor:V-1002",
+    "kind": "vendor",
+    "vendor_id": "V-1002",
+    "name": "Bluepeak Logistics",
+    "aliases": [],
+    "currency": "USD",
+    "tax_code": "US-FREIGHT-EXEMPT",
+    "po_required": true,
+    "text": "Bluepeak Logistics (V-1002) is the LTL freight carrier for Dallas and Denver lanes. Freight is billed in USD, tax exempt, and must reference a purchase order; credit notes reference the original invoice instead."
+  },
+  {
+    "chunk_id": "vendor:V-1003",
+    "kind": "vendor",
+    "vendor_id": "V-1003",
+    "name": "Harbor & Pine Consulting",
+    "aliases": ["Harbor and Pine Consulting LLC"],
+    "currency": "USD",
+    "tax_code": "US-WA-SVC",
+    "po_required": true,
+    "text": "Harbor & Pine Consulting (V-1003), legal name Harbor and Pine Consulting LLC, provides advisory hours and workshop facilitation. Bills in USD under a statement of work PO; Washington services tax at 7.25%."
+  },
+  {
+    "chunk_id": "vendor:V-1004",
+    "kind": "vendor",
+    "vendor_id": "V-1004",
+    "name": "Tallow Print Co.",
+    "aliases": [],
+    "currency": "USD",
+    "tax_code": "US-PRINT-6",
+    "po_required": true,
+    "text": "Tallow Print Co. (V-1004) prints business cards, brochures, banners and signage. Bills in USD per purchase order; 6% sales tax on printed goods."
+  },
+  {
+    "chunk_id": "vendor:V-2001",
+    "kind": "vendor",
+    "vendor_id": "V-2001",
+    "name": "Kestrel Industrial GmbH",
+    "aliases": [],
+    "currency": "EUR",
+    "tax_code": "DE-VAT-STD",
+    "po_required": true,
+    "text": "Kestrel Industrial GmbH (V-2001) supplies hydraulic fittings and pressure gauges from Germany. Invoices in EUR with German VAT at 19%."
+  },
+  {
+    "chunk_id": "vendor:V-2002",
+    "kind": "vendor",
+    "vendor_id": "V-2002",
+    "name": "Granite Cloud Services Ltd",
+    "aliases": [],
+    "currency": "GBP",
+    "tax_code": "UK-VAT-STD",
+    "po_required": true,
+    "text": "Granite Cloud Services Ltd (V-2002) provides managed Kubernetes and object storage. Invoices monthly in GBP with UK VAT at 20%."
+  }
+]

@@ -1,0 +1,78 @@
+{
+  "case_id": "unchecked_gap__line_amount_not_qty_times_price",
+  "description": "3 x 38.00 business cards billed as 141.00 (should be 114.00); subtotal, tax and total agree with the stated amounts and quantity x price is not checked yet, so it approves.",
+  "tags": [
+    "unchecked_gap"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "TPC-5612",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-10-02",
+      "due_date": "2026-11-01",
+      "currency": "USD",
+      "po_number": "PO-4500-1327",
+      "line_items": [
+        {
+          "description": "Business cards, 500 ct",
+          "quantity": "3",
+          "unit_price": "38.00",
+          "amount": "141.00",
+          "sku": "TP-BC-500"
+        },
+        {
+          "description": "Rush setup fee",
+          "quantity": "1",
+          "unit_price": "75.00",
+          "amount": "75.00"
+        }
+      ],
+      "subtotal": "216.00",
+      "tax_rate": "0.06",
+      "tax_amount": "12.96",
+      "total": "228.96"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "TPC-5612",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-10-02",
+      "due_date": "2026-11-01",
+      "currency": "USD",
+      "po_number": "PO-4500-1327",
+      "line_items": [
+        {
+          "description": "Business cards, 500 ct",
+          "quantity": "3",
+          "unit_price": "38.00",
+          "amount": "141.00",
+          "sku": "TP-BC-500"
+        },
+        {
+          "description": "Rush setup fee",
+          "quantity": "1",
+          "unit_price": "75.00",
+          "amount": "75.00"
+        }
+      ],
+      "subtotal": "216.00",
+      "tax_rate": "0.06",
+      "tax_amount": "12.96",
+      "total": "228.96"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1004",
+        "tax:US-PRINT-6"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": []
+    }
+  }
+}

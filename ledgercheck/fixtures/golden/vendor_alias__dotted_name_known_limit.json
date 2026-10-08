@@ -1,0 +1,83 @@
+{
+  "case_id": "vendor_alias__dotted_name_known_limit",
+  "description": "'Tallow.Print' normalizes to 'tallowprint' (documented known limit): name error.",
+  "tags": [
+    "vendor_alias",
+    "vendor_mismatch"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "TPC-5602",
+      "vendor_name": "Tallow.Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1270",
+      "line_items": [
+        {
+          "description": "Tri-fold brochures, 1000 pk",
+          "quantity": "1",
+          "unit_price": "212.00",
+          "amount": "212.00",
+          "sku": "TP-BR-1000"
+        }
+      ],
+      "subtotal": "212.00",
+      "tax_rate": "0.06",
+      "tax_amount": "12.72",
+      "total": "224.72"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "TPC-5602",
+      "vendor_name": "Tallow.Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1270",
+      "line_items": [
+        {
+          "description": "Tri-fold brochures, 1000 pk",
+          "quantity": "1",
+          "unit_price": "212.00",
+          "amount": "212.00",
+          "sku": "TP-BR-1000"
+        }
+      ],
+      "subtotal": "212.00",
+      "tax_rate": "0.06",
+      "tax_amount": "12.72",
+      "total": "224.72"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1004",
+        "tax:US-PRINT-6"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-VENDOR-NAME",
+          "severity": "error",
+          "field": "vendor_name",
+          "expected": "Tallow Print Co.",
+          "observed": "Tallow.Print Co."
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "POL-VENDOR-NAME",
+          "severity": "error",
+          "field": "vendor_name",
+          "expected": "Tallow Print Co.",
+          "observed": "Tallow.Print Co."
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "case_id": "multi_issue__unknown_po_and_rounding",
+  "description": "PO-4500-1323 is not in a book holding only PO-4500-1324, and 6% of 120.25 = 7.215 is charged 7.21 (half-up 7.22): warnings only, so still a flag.",
+  "tags": [
+    "multi_issue",
+    "unknown_po",
+    "po_book",
+    "rounding"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "TPC-5611",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-10-01",
+      "due_date": "2026-10-31",
+      "currency": "USD",
+      "po_number": "PO-4500-1323",
+      "line_items": [
+        {
+          "description": "Flyers, A5, 500 ct",
+          "quantity": "1",
+          "unit_price": "45.25",
+          "amount": "45.25",
+          "sku": "TP-FL-A5"
+        },
+        {
+          "description": "Rush setup fee",
+          "quantity": "1",
+          "unit_price": "75.00",
+          "amount": "75.00"
+        }
+      ],
+      "subtotal": "120.25",
+      "tax_rate": "0.06",
+      "tax_amount": "7.21",
+      "total": "127.46"
+    },
+    "po_book": {
+      "PO-4500-1324": "200.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "TPC-5611",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-10-01",
+      "due_date": "2026-10-31",
+      "currency": "USD",
+      "po_number": "PO-4500-1323",
+      "line_items": [
+        {
+          "description": "Flyers, A5, 500 ct",
+          "quantity": "1",
+          "unit_price": "45.25",
+          "amount": "45.25",
+          "sku": "TP-FL-A5"
+        },
+        {
+          "description": "Rush setup fee",
+          "quantity": "1",
+          "unit_price": "75.00",
+          "amount": "75.00"
+        }
+      ],
+      "subtotal": "120.25",
+      "tax_rate": "0.06",
+      "tax_amount": "7.21",
+      "total": "127.46"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1004",
+        "tax:US-PRINT-6"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-TAX-ROUNDING",
+          "severity": "warning",
+          "field": "tax_amount",
+          "expected": "7.22",
+          "observed": "7.21"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "flag",
+      "hits": [
+        {
+          "rule_id": "APR-PO-UNKNOWN",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": "PO-4500-1323"
+        },
+        {
+          "rule_id": "APR-TAX-ROUNDING",
+          "severity": "warning",
+          "field": "tax_amount",
+          "expected": "7.22",
+          "observed": "7.21"
+        },
+        {
+          "rule_id": "POL-TAX-ROUNDING",
+          "severity": "warning",
+          "field": "tax_amount",
+          "expected": "7.22",
+          "observed": "7.21"
+        }
+      ]
+    }
+  }
+}

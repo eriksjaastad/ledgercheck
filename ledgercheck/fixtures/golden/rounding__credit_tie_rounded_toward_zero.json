@@ -1,0 +1,90 @@
+{
+  "case_id": "rounding__credit_tie_rounded_toward_zero",
+  "description": "Credit with a half-cent tie: -80.75 x 6% = -4.845, half-up (away from zero) is -4.85; -4.84 is charged, so the credit gets the one-cent warning in both stages.",
+  "tags": [
+    "rounding",
+    "credit_note"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "CN-TPC-0023",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-29",
+      "due_date": null,
+      "currency": "USD",
+      "po_number": "PO-4500-1311",
+      "line_items": [
+        {
+          "description": "Credit: misprinted postcards, 4x6 in, 1000 ct",
+          "quantity": "-1",
+          "unit_price": "80.75",
+          "amount": "-80.75",
+          "sku": "TP-PC-1000"
+        }
+      ],
+      "subtotal": "-80.75",
+      "tax_rate": "0.06",
+      "tax_amount": "-4.84",
+      "total": "-85.59"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "CN-TPC-0023",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-29",
+      "due_date": null,
+      "currency": "USD",
+      "po_number": "PO-4500-1311",
+      "line_items": [
+        {
+          "description": "Credit: misprinted postcards, 4x6 in, 1000 ct",
+          "quantity": "-1",
+          "unit_price": "80.75",
+          "amount": "-80.75",
+          "sku": "TP-PC-1000"
+        }
+      ],
+      "subtotal": "-80.75",
+      "tax_rate": "0.06",
+      "tax_amount": "-4.84",
+      "total": "-85.59"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1004",
+        "tax:US-PRINT-6"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-TAX-ROUNDING",
+          "severity": "warning",
+          "field": "tax_amount",
+          "expected": "-4.85",
+          "observed": "-4.84"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "flag",
+      "hits": [
+        {
+          "rule_id": "APR-TAX-ROUNDING",
+          "severity": "warning",
+          "field": "tax_amount",
+          "expected": "-4.85",
+          "observed": "-4.84"
+        },
+        {
+          "rule_id": "POL-TAX-ROUNDING",
+          "severity": "warning",
+          "field": "tax_amount",
+          "expected": "-4.85",
+          "observed": "-4.84"
+        }
+      ]
+    }
+  }
+}

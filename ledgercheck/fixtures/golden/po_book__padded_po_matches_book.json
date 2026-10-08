@@ -1,0 +1,70 @@
+{
+  "case_id": "po_book__padded_po_matches_book",
+  "description": "PO stated as \" PO-4500-1282 \" (padded with spaces): the lookup strips it, so it matches the book key PO-4500-1282 and the 552.08 total (510.00 x 8.25% = 42.075, half-up 42.08) is within 600.00; no unknown-PO warning.",
+  "tags": [
+    "po_book",
+    "clean"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "INV-NW-20528",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-25",
+      "due_date": "2026-10-25",
+      "currency": "USD",
+      "po_number": " PO-4500-1282 ",
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "12",
+          "unit_price": "42.50",
+          "amount": "510.00",
+          "sku": "NW-PAP-2010"
+        }
+      ],
+      "subtotal": "510.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "42.08",
+      "total": "552.08"
+    },
+    "po_book": {
+      "PO-4500-1282": "600.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INV-NW-20528",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-25",
+      "due_date": "2026-10-25",
+      "currency": "USD",
+      "po_number": " PO-4500-1282 ",
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "12",
+          "unit_price": "42.50",
+          "amount": "510.00",
+          "sku": "NW-PAP-2010"
+        }
+      ],
+      "subtotal": "510.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "42.08",
+      "total": "552.08"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": []
+    }
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "case_id": "no_tax_rate__tax_omitted",
+  "description": "No rate and no tax on a taxable sale: only the policy stage can see it.",
+  "tags": [
+    "no_tax_rate",
+    "tax_mismatch"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "INV-NW-20516",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1249",
+      "line_items": [
+        {
+          "description": "Ergonomic chair",
+          "quantity": "4",
+          "unit_price": "250.00",
+          "amount": "1000.00",
+          "sku": "NW-CHR-0400"
+        }
+      ],
+      "subtotal": "1000.00",
+      "tax_rate": null,
+      "tax_amount": "0.00",
+      "total": "1000.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INV-NW-20516",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1249",
+      "line_items": [
+        {
+          "description": "Ergonomic chair",
+          "quantity": "4",
+          "unit_price": "250.00",
+          "amount": "1000.00",
+          "sku": "NW-CHR-0400"
+        }
+      ],
+      "subtotal": "1000.00",
+      "tax_rate": null,
+      "tax_amount": "0.00",
+      "total": "1000.00"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "82.50",
+          "observed": "0.00"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "82.50",
+          "observed": "0.00"
+        }
+      ]
+    }
+  }
+}

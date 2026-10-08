@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ledgercheck"
+version = "0.1.0"
+description = "AI-driven B2B invoice and payment reconciliation engine."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+# Tracing to Langfuse; off unless LANGFUSE_* keys are set (ledgercheck.observability).
+langfuse = [
+    "langfuse>=3,<4",
+]
+
+[project.scripts]
+ledgercheck = "ledgercheck.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ledgercheck*"]
+
+[tool.setuptools.package-data]
+ledgercheck = [
+    "fixtures/invoices/*.json", "fixtures/invoices/*.txt", "fixtures/policy/*.json",
+    "fixtures/golden/*.json", "fixtures/golden/*.txt",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

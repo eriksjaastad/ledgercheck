@@ -1,0 +1,104 @@
+{
+  "case_id": "multi_issue__currency_and_missing_po",
+  "description": "GBP vendor billing in EUR with no PO: a currency error plus both PO warnings.",
+  "tags": [
+    "multi_issue",
+    "currency_mismatch",
+    "foreign_currency",
+    "missing_po"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "GCS-INV-77240",
+      "vendor_name": "Granite Cloud Services Ltd",
+      "vendor_id": "V-2002",
+      "invoice_date": "2026-10-01",
+      "due_date": "2026-10-31",
+      "currency": "EUR",
+      "po_number": null,
+      "line_items": [
+        {
+          "description": "Managed Kubernetes, October (per node)",
+          "quantity": "2",
+          "unit_price": "210.00",
+          "amount": "420.00"
+        }
+      ],
+      "subtotal": "420.00",
+      "tax_rate": "0.20",
+      "tax_amount": "84.00",
+      "total": "504.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "GCS-INV-77240",
+      "vendor_name": "Granite Cloud Services Ltd",
+      "vendor_id": "V-2002",
+      "invoice_date": "2026-10-01",
+      "due_date": "2026-10-31",
+      "currency": "EUR",
+      "po_number": null,
+      "line_items": [
+        {
+          "description": "Managed Kubernetes, October (per node)",
+          "quantity": "2",
+          "unit_price": "210.00",
+          "amount": "420.00"
+        }
+      ],
+      "subtotal": "420.00",
+      "tax_rate": "0.20",
+      "tax_amount": "84.00",
+      "total": "504.00"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-2002",
+        "tax:UK-VAT-STD"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-CURRENCY",
+          "severity": "error",
+          "field": "currency",
+          "expected": "GBP",
+          "observed": "EUR"
+        },
+        {
+          "rule_id": "POL-PO-REQUIRED",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "APR-PO-MISSING",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        },
+        {
+          "rule_id": "POL-CURRENCY",
+          "severity": "error",
+          "field": "currency",
+          "expected": "GBP",
+          "observed": "EUR"
+        },
+        {
+          "rule_id": "POL-PO-REQUIRED",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        }
+      ]
+    }
+  }
+}

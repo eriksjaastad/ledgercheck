@@ -1,0 +1,11 @@
+Ｔａｌｌｏｗ Ｐｒｉｎｔ Ｃｏ．
+（Vendor ID: V-1004）
+
+INVOICE  TPC-5610              Date: 2026-09-26
+PO: PO-4500-1321               Due:  2026-10-26
+
+Item                          Qty     Unit     Amount
+Business cards, 500 ct          3    38.00     114.00
+                         Subtotal             114.00
+                         Sales tax 6%           6.84
+                         Total (USD)          120.84

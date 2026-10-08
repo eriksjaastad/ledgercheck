@@ -1,0 +1,73 @@
+{
+  "case_id": "tax_mismatch__consulting_overcharge",
+  "description": "Tax charged well above 7.25% of the subtotal: an error in both stages.",
+  "tags": [
+    "tax_mismatch"
+  ],
+  "input": {
+    "fixture": "tax_mismatch"
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "HPC-2026-0931",
+      "vendor_name": "Harbor & Pine Consulting",
+      "vendor_id": "V-1003",
+      "invoice_date": "2026-09-30",
+      "due_date": "2026-10-30",
+      "currency": "USD",
+      "po_number": "PO-4500-1207",
+      "line_items": [
+        {
+          "description": "Advisory hours, September",
+          "quantity": "32",
+          "unit_price": "175.00",
+          "amount": "5600.00"
+        },
+        {
+          "description": "Travel expenses (pass-through)",
+          "quantity": "1",
+          "unit_price": "412.35",
+          "amount": "412.35"
+        }
+      ],
+      "subtotal": "6012.35",
+      "tax_rate": "0.0725",
+      "tax_amount": "465.96",
+      "total": "6478.31"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1003",
+        "tax:US-WA-SVC"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "435.90",
+          "observed": "465.96"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "APR-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "435.90",
+          "observed": "465.96"
+        },
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "435.90",
+          "observed": "465.96"
+        }
+      ]
+    }
+  }
+}

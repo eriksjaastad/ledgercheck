@@ -1,0 +1,97 @@
+{
+  "case_id": "tax_rate_mismatch__wrong_rate_self_consistent",
+  "description": "6.25% stated and charged consistently; only the vendor tax code shows it is wrong.",
+  "tags": [
+    "tax_rate_mismatch",
+    "tax_mismatch"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "INV-NW-20514",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1247",
+      "line_items": [
+        {
+          "description": "Ergonomic chair",
+          "quantity": "4",
+          "unit_price": "250.00",
+          "amount": "1000.00",
+          "sku": "NW-CHR-0400"
+        }
+      ],
+      "subtotal": "1000.00",
+      "tax_rate": "0.0625",
+      "tax_amount": "62.50",
+      "total": "1062.50"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INV-NW-20514",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1247",
+      "line_items": [
+        {
+          "description": "Ergonomic chair",
+          "quantity": "4",
+          "unit_price": "250.00",
+          "amount": "1000.00",
+          "sku": "NW-CHR-0400"
+        }
+      ],
+      "subtotal": "1000.00",
+      "tax_rate": "0.0625",
+      "tax_amount": "62.50",
+      "total": "1062.50"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-TAX-RATE",
+          "severity": "error",
+          "field": "tax_rate",
+          "expected": "0.0825",
+          "observed": "0.0625"
+        },
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "82.50",
+          "observed": "62.50"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "POL-TAX-RATE",
+          "severity": "error",
+          "field": "tax_rate",
+          "expected": "0.0825",
+          "observed": "0.0625"
+        },
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "82.50",
+          "observed": "62.50"
+        }
+      ]
+    }
+  }
+}

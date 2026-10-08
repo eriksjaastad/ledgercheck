@@ -1,0 +1,123 @@
+{
+  "case_id": "multi_issue__name_match_subtotal_and_tax_gap",
+  "description": "Matched by legal name with no id (INFO), the subtotal leaves out the 95.00 materials line (1400.00 vs 1495.00), and tax 101.53 is three cents over 7.25% of 1400.00 (101.50).",
+  "tags": [
+    "multi_issue",
+    "vendor_alias",
+    "subtotal_mismatch",
+    "tax_mismatch"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "HPC-2026-0971",
+      "vendor_name": "Harbor and Pine Consulting LLC",
+      "vendor_id": null,
+      "invoice_date": "2026-10-01",
+      "due_date": "2026-10-31",
+      "currency": "USD",
+      "po_number": "PO-4500-1325",
+      "line_items": [
+        {
+          "description": "Advisory hours",
+          "quantity": "8",
+          "unit_price": "175.00",
+          "amount": "1400.00"
+        },
+        {
+          "description": "Workshop materials",
+          "quantity": "1",
+          "unit_price": "95.00",
+          "amount": "95.00"
+        }
+      ],
+      "subtotal": "1400.00",
+      "tax_rate": "0.0725",
+      "tax_amount": "101.53",
+      "total": "1501.53"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "HPC-2026-0971",
+      "vendor_name": "Harbor and Pine Consulting LLC",
+      "vendor_id": null,
+      "invoice_date": "2026-10-01",
+      "due_date": "2026-10-31",
+      "currency": "USD",
+      "po_number": "PO-4500-1325",
+      "line_items": [
+        {
+          "description": "Advisory hours",
+          "quantity": "8",
+          "unit_price": "175.00",
+          "amount": "1400.00"
+        },
+        {
+          "description": "Workshop materials",
+          "quantity": "1",
+          "unit_price": "95.00",
+          "amount": "95.00"
+        }
+      ],
+      "subtotal": "1400.00",
+      "tax_rate": "0.0725",
+      "tax_amount": "101.53",
+      "total": "1501.53"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1003",
+        "tax:US-WA-SVC"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-VENDOR-NO-ID",
+          "severity": "info",
+          "field": "vendor_id",
+          "expected": "V-1003",
+          "observed": null
+        },
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "101.50",
+          "observed": "101.53"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "APR-SUBTOTAL",
+          "severity": "error",
+          "field": "subtotal",
+          "expected": "1495.00",
+          "observed": "1400.00"
+        },
+        {
+          "rule_id": "APR-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "101.50",
+          "observed": "101.53"
+        },
+        {
+          "rule_id": "POL-VENDOR-NO-ID",
+          "severity": "info",
+          "field": "vendor_id",
+          "expected": "V-1003",
+          "observed": null
+        },
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "101.50",
+          "observed": "101.53"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "case_id": "currency_mismatch__gbp_vendor_billed_in_usd",
+  "description": "GBP vendor billing in USD: a USD invoice is not foreign, but it is the wrong currency for this vendor.",
+  "tags": [
+    "currency_mismatch"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "GCS-INV-77188",
+      "vendor_name": "Granite Cloud Services Ltd",
+      "vendor_id": "V-2002",
+      "invoice_date": "2026-09-30",
+      "due_date": "2026-10-30",
+      "currency": "USD",
+      "po_number": "PO-4500-1315",
+      "line_items": [
+        {
+          "description": "Managed Kubernetes, October (per node)",
+          "quantity": "3",
+          "unit_price": "210.00",
+          "amount": "630.00"
+        }
+      ],
+      "subtotal": "630.00",
+      "tax_rate": "0.20",
+      "tax_amount": "126.00",
+      "total": "756.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "GCS-INV-77188",
+      "vendor_name": "Granite Cloud Services Ltd",
+      "vendor_id": "V-2002",
+      "invoice_date": "2026-09-30",
+      "due_date": "2026-10-30",
+      "currency": "USD",
+      "po_number": "PO-4500-1315",
+      "line_items": [
+        {
+          "description": "Managed Kubernetes, October (per node)",
+          "quantity": "3",
+          "unit_price": "210.00",
+          "amount": "630.00"
+        }
+      ],
+      "subtotal": "630.00",
+      "tax_rate": "0.20",
+      "tax_amount": "126.00",
+      "total": "756.00"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-2002",
+        "tax:UK-VAT-STD"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-CURRENCY",
+          "severity": "error",
+          "field": "currency",
+          "expected": "GBP",
+          "observed": "USD"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "POL-CURRENCY",
+          "severity": "error",
+          "field": "currency",
+          "expected": "GBP",
+          "observed": "USD"
+        }
+      ]
+    }
+  }
+}

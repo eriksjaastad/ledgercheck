@@ -1,0 +1,40 @@
+{
+  "case_id": "missing_po",
+  "description": "Freight invoice with no PO reference anywhere on the document.",
+  "tags": [
+    "missing_po"
+  ],
+  "invoice": {
+    "invoice_number": "BPL-88213",
+    "vendor_name": "Bluepeak Logistics",
+    "vendor_id": "V-1002",
+    "invoice_date": "2026-09-10",
+    "due_date": "2026-10-10",
+    "currency": "USD",
+    "po_number": null,
+    "line_items": [
+      {
+        "description": "LTL freight Dallas TX to Denver CO",
+        "quantity": "1",
+        "unit_price": "1840.00",
+        "amount": "1840.00"
+      },
+      {
+        "description": "Liftgate delivery surcharge",
+        "quantity": "1",
+        "unit_price": "95.00",
+        "amount": "95.00"
+      },
+      {
+        "description": "Fuel surcharge (18% of linehaul)",
+        "quantity": "1",
+        "unit_price": "331.20",
+        "amount": "331.20"
+      }
+    ],
+    "subtotal": "2266.20",
+    "tax_rate": "0",
+    "tax_amount": "0.00",
+    "total": "2266.20"
+  }
+}

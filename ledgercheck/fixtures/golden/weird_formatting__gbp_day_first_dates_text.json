@@ -1,0 +1,89 @@
+{
+  "case_id": "weird_formatting__gbp_day_first_dates_text",
+  "description": "UK text: '£' amounts, 'VAT @ 20%', and day-first dates where 01/10/2026 is 1 October, not January 10.",
+  "tags": [
+    "weird_formatting",
+    "foreign_currency"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "GCS-INV-77231",
+      "vendor_name": "Granite Cloud Services Ltd",
+      "vendor_id": "V-2002",
+      "invoice_date": "2026-10-01",
+      "due_date": "2026-10-15",
+      "currency": "GBP",
+      "po_number": "PO-4500-1322",
+      "line_items": [
+        {
+          "description": "Managed Kubernetes, September (per node)",
+          "quantity": "2",
+          "unit_price": "210.00",
+          "amount": "420.00"
+        },
+        {
+          "description": "Object storage (per TB-month)",
+          "quantity": "1.5",
+          "unit_price": "18.50",
+          "amount": "27.75"
+        },
+        {
+          "description": "Egress (per GB)",
+          "quantity": "300",
+          "unit_price": "0.09",
+          "amount": "27.00"
+        }
+      ],
+      "subtotal": "474.75",
+      "tax_rate": "0.20",
+      "tax_amount": "94.95",
+      "total": "569.70"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "GCS-INV-77231",
+      "vendor_name": "Granite Cloud Services Ltd",
+      "vendor_id": "V-2002",
+      "invoice_date": "2026-10-01",
+      "due_date": "2026-10-15",
+      "currency": "GBP",
+      "po_number": "PO-4500-1322",
+      "line_items": [
+        {
+          "description": "Managed Kubernetes, September (per node)",
+          "quantity": "2",
+          "unit_price": "210.00",
+          "amount": "420.00"
+        },
+        {
+          "description": "Object storage (per TB-month)",
+          "quantity": "1.5",
+          "unit_price": "18.50",
+          "amount": "27.75"
+        },
+        {
+          "description": "Egress (per GB)",
+          "quantity": "300",
+          "unit_price": "0.09",
+          "amount": "27.00"
+        }
+      ],
+      "subtotal": "474.75",
+      "tax_rate": "0.20",
+      "tax_amount": "94.95",
+      "total": "569.70"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-2002",
+        "tax:UK-VAT-STD"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": []
+    }
+  }
+}

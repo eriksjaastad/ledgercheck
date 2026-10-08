@@ -1,0 +1,82 @@
+{
+  "case_id": "vendor_mismatch__typo_not_fuzzy_matched",
+  "description": "One-letter typo ('Ofice') under the right vendor id: names match exactly after normalization, not fuzzily, so it is a name error.",
+  "tags": [
+    "vendor_mismatch"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "INV-NW-20524",
+      "vendor_name": "Northwind Ofice Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-30",
+      "due_date": "2026-10-30",
+      "currency": "USD",
+      "po_number": "PO-4500-1319",
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "3",
+          "unit_price": "42.50",
+          "amount": "127.50",
+          "sku": "NW-PAP-2010"
+        }
+      ],
+      "subtotal": "127.50",
+      "tax_rate": "0.0825",
+      "tax_amount": "10.52",
+      "total": "138.02"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INV-NW-20524",
+      "vendor_name": "Northwind Ofice Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-30",
+      "due_date": "2026-10-30",
+      "currency": "USD",
+      "po_number": "PO-4500-1319",
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "3",
+          "unit_price": "42.50",
+          "amount": "127.50",
+          "sku": "NW-PAP-2010"
+        }
+      ],
+      "subtotal": "127.50",
+      "tax_rate": "0.0825",
+      "tax_amount": "10.52",
+      "total": "138.02"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-VENDOR-NAME",
+          "severity": "error",
+          "field": "vendor_name",
+          "expected": "Northwind Office Supply",
+          "observed": "Northwind Ofice Supply"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "POL-VENDOR-NAME",
+          "severity": "error",
+          "field": "vendor_name",
+          "expected": "Northwind Office Supply",
+          "observed": "Northwind Ofice Supply"
+        }
+      ]
+    }
+  }
+}

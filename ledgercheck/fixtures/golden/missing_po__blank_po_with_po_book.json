@@ -1,0 +1,94 @@
+{
+  "case_id": "missing_po__blank_po_with_po_book",
+  "description": "Blank PO with a PO book supplied: the book lookup is skipped, so only the two missing-PO warnings fire, no unknown-PO warning.",
+  "tags": [
+    "missing_po",
+    "blank_field",
+    "po_book"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "INV-NW-20518",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-25",
+      "due_date": "2026-10-25",
+      "currency": "USD",
+      "po_number": "   ",
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "8",
+          "unit_price": "42.50",
+          "amount": "340.00",
+          "sku": "NW-PAP-2010"
+        }
+      ],
+      "subtotal": "340.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "28.05",
+      "total": "368.05"
+    },
+    "po_book": {
+      "PO-4500-1301": "500.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INV-NW-20518",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-25",
+      "due_date": "2026-10-25",
+      "currency": "USD",
+      "po_number": "   ",
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "8",
+          "unit_price": "42.50",
+          "amount": "340.00",
+          "sku": "NW-PAP-2010"
+        }
+      ],
+      "subtotal": "340.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "28.05",
+      "total": "368.05"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-PO-REQUIRED",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "flag",
+      "hits": [
+        {
+          "rule_id": "APR-PO-MISSING",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        },
+        {
+          "rule_id": "POL-PO-REQUIRED",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "case_id": "vendor_alias__plus_sign_separator",
+  "description": "'+' in place of '&': '+' only separates words and '&' becomes the dropped 'and', so both normalize to 'harbor pine consulting' and there are no hits.",
+  "tags": [
+    "vendor_alias"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "HP-2026-0946",
+      "vendor_name": "Harbor + Pine Consulting",
+      "vendor_id": "V-1003",
+      "invoice_date": "2026-10-01",
+      "due_date": "2026-10-31",
+      "currency": "USD",
+      "po_number": "PO-4500-1320",
+      "line_items": [
+        {
+          "description": "Advisory hours",
+          "quantity": "6",
+          "unit_price": "175.00",
+          "amount": "1050.00"
+        }
+      ],
+      "subtotal": "1050.00",
+      "tax_rate": "0.0725",
+      "tax_amount": "76.13",
+      "total": "1126.13"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "HP-2026-0946",
+      "vendor_name": "Harbor + Pine Consulting",
+      "vendor_id": "V-1003",
+      "invoice_date": "2026-10-01",
+      "due_date": "2026-10-31",
+      "currency": "USD",
+      "po_number": "PO-4500-1320",
+      "line_items": [
+        {
+          "description": "Advisory hours",
+          "quantity": "6",
+          "unit_price": "175.00",
+          "amount": "1050.00"
+        }
+      ],
+      "subtotal": "1050.00",
+      "tax_rate": "0.0725",
+      "tax_amount": "76.13",
+      "total": "1126.13"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1003",
+        "tax:US-WA-SVC"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": []
+    }
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "case_id": "credit_note__mixed_sign_lines",
+  "description": "Credit netting a -170.00 paper return against a +17.00 restocking fee: subtotal -153.00, tax -12.62 (-12.6225, not a tie); mixed-sign lines are clean.",
+  "tags": [
+    "credit_note",
+    "clean"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "CN-NW-0082",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-30",
+      "due_date": null,
+      "currency": "USD",
+      "po_number": "PO-4500-1182",
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "-4",
+          "unit_price": "42.50",
+          "amount": "-170.00",
+          "sku": "NW-PAP-2010"
+        },
+        {
+          "description": "Restocking fee (10%)",
+          "quantity": "1",
+          "unit_price": "17.00",
+          "amount": "17.00"
+        }
+      ],
+      "subtotal": "-153.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "-12.62",
+      "total": "-165.62"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "CN-NW-0082",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-30",
+      "due_date": null,
+      "currency": "USD",
+      "po_number": "PO-4500-1182",
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "-4",
+          "unit_price": "42.50",
+          "amount": "-170.00",
+          "sku": "NW-PAP-2010"
+        },
+        {
+          "description": "Restocking fee (10%)",
+          "quantity": "1",
+          "unit_price": "17.00",
+          "amount": "17.00"
+        }
+      ],
+      "subtotal": "-153.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "-12.62",
+      "total": "-165.62"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": []
+    }
+  }
+}

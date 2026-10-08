@@ -1,0 +1,13 @@
+BLUEPEAK LOGISTICS
+LTL Freight · Dallas · Denver               Carrier acct V-1002
+
+CREDIT MEMO   No. CN-BPL-0436
+Date: 09/29/2026
+Ref. Inv.: BPL-88213          P.O.: n/a
+
+Description                                                 Qty      Rate     Amount
+Credit: fuel surcharge overbilled (18% vs 15% of linehaul)    1   (55.20)    (55.20)
+                                                                       -----------
+Subtotal                                                                   (55.20)
+Tax (exempt)                                                                  0.00
+Balance                                                                 $55.20 CR

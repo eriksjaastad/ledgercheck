@@ -1,0 +1,110 @@
+{
+  "case_id": "vendor_mismatch__id_of_other_vendor",
+  "description": "Northwind invoice stamped with Bluepeak's vendor id; Bluepeak's exempt tax code then flags the 8.25% rate and the tax amount, both following from the wrong id.",
+  "tags": [
+    "vendor_mismatch"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "INV-NW-20511",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1002",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1244",
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "20",
+          "unit_price": "42.50",
+          "amount": "850.00",
+          "sku": "NW-PAP-2010"
+        }
+      ],
+      "subtotal": "850.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "70.13",
+      "total": "920.13"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INV-NW-20511",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1002",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1244",
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "20",
+          "unit_price": "42.50",
+          "amount": "850.00",
+          "sku": "NW-PAP-2010"
+        }
+      ],
+      "subtotal": "850.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "70.13",
+      "total": "920.13"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1002",
+        "tax:US-FREIGHT-EXEMPT"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-VENDOR-NAME",
+          "severity": "error",
+          "field": "vendor_name",
+          "expected": "Bluepeak Logistics",
+          "observed": "Northwind Office Supply"
+        },
+        {
+          "rule_id": "POL-TAX-RATE",
+          "severity": "error",
+          "field": "tax_rate",
+          "expected": "0",
+          "observed": "0.0825"
+        },
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "0.00",
+          "observed": "70.13"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "POL-VENDOR-NAME",
+          "severity": "error",
+          "field": "vendor_name",
+          "expected": "Bluepeak Logistics",
+          "observed": "Northwind Office Supply"
+        },
+        {
+          "rule_id": "POL-TAX-RATE",
+          "severity": "error",
+          "field": "tax_rate",
+          "expected": "0",
+          "observed": "0.0825"
+        },
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "0.00",
+          "observed": "70.13"
+        }
+      ]
+    }
+  }
+}

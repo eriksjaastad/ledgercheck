@@ -1,0 +1,82 @@
+{
+  "case_id": "rounding__per_line_print",
+  "description": "Tax rounded per line (4.86) instead of on the subtotal (4.85): one-cent warning.",
+  "tags": [
+    "rounding"
+  ],
+  "input": {
+    "fixture": "rounding"
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "TPC-5560",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-19",
+      "due_date": "2026-10-04",
+      "currency": "USD",
+      "po_number": "PO-4500-1201",
+      "line_items": [
+        {
+          "description": "Vinyl banner, 2x6 ft",
+          "quantity": "1",
+          "unit_price": "40.25",
+          "amount": "40.25",
+          "sku": "TP-VB-26"
+        },
+        {
+          "description": "Foam board sign, 18x24 in",
+          "quantity": "1",
+          "unit_price": "18.25",
+          "amount": "18.25",
+          "sku": "TP-FB-1824"
+        },
+        {
+          "description": "Window decal set",
+          "quantity": "1",
+          "unit_price": "22.25",
+          "amount": "22.25",
+          "sku": "TP-WD-SET"
+        }
+      ],
+      "subtotal": "80.75",
+      "tax_rate": "0.06",
+      "tax_amount": "4.86",
+      "total": "85.61"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1004",
+        "tax:US-PRINT-6"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-TAX-ROUNDING",
+          "severity": "warning",
+          "field": "tax_amount",
+          "expected": "4.85",
+          "observed": "4.86"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "flag",
+      "hits": [
+        {
+          "rule_id": "APR-TAX-ROUNDING",
+          "severity": "warning",
+          "field": "tax_amount",
+          "expected": "4.85",
+          "observed": "4.86"
+        },
+        {
+          "rule_id": "POL-TAX-ROUNDING",
+          "severity": "warning",
+          "field": "tax_amount",
+          "expected": "4.85",
+          "observed": "4.86"
+        }
+      ]
+    }
+  }
+}

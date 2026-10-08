@@ -1,0 +1,127 @@
+{
+  "case_id": "multi_issue__ocr_text_no_po_and_tax_gap",
+  "description": "OCR'd text with an empty 'P.O. #:' label and tax 16.22 vs 8.25% of 196.40 = 16.203 (16.20): both PO warnings plus a two-cent tax error in each stage.",
+  "tags": [
+    "multi_issue",
+    "weird_formatting",
+    "missing_po",
+    "tax_mismatch"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "INV-NW-20525",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-28",
+      "due_date": "2026-10-28",
+      "currency": "USD",
+      "po_number": null,
+      "line_items": [
+        {
+          "description": "Whiteboard markers, assorted (12 pk)",
+          "quantity": "6",
+          "unit_price": "11.40",
+          "amount": "68.40",
+          "sku": "NW-MRK-0012"
+        },
+        {
+          "description": "Ergonomic chair mat",
+          "quantity": "2",
+          "unit_price": "64.00",
+          "amount": "128.00",
+          "sku": "NW-MAT-0003"
+        }
+      ],
+      "subtotal": "196.40",
+      "tax_rate": "0.0825",
+      "tax_amount": "16.22",
+      "total": "212.62"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INV-NW-20525",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-28",
+      "due_date": "2026-10-28",
+      "currency": "USD",
+      "po_number": null,
+      "line_items": [
+        {
+          "description": "Whiteboard markers, assorted (12 pk)",
+          "quantity": "6",
+          "unit_price": "11.40",
+          "amount": "68.40",
+          "sku": "NW-MRK-0012"
+        },
+        {
+          "description": "Ergonomic chair mat",
+          "quantity": "2",
+          "unit_price": "64.00",
+          "amount": "128.00",
+          "sku": "NW-MAT-0003"
+        }
+      ],
+      "subtotal": "196.40",
+      "tax_rate": "0.0825",
+      "tax_amount": "16.22",
+      "total": "212.62"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-PO-REQUIRED",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        },
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "16.20",
+          "observed": "16.22"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "APR-PO-MISSING",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        },
+        {
+          "rule_id": "APR-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "16.20",
+          "observed": "16.22"
+        },
+        {
+          "rule_id": "POL-PO-REQUIRED",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        },
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "16.20",
+          "observed": "16.22"
+        }
+      ]
+    }
+  }
+}

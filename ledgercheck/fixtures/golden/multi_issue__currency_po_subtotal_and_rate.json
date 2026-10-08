@@ -1,0 +1,158 @@
+{
+  "case_id": "multi_issue__currency_po_subtotal_and_rate",
+  "description": "Four independent problems: billed in EUR, no PO, subtotal leaves out the toner line (425.00 vs 604.98) and a 7% rate; POL-TAX-AMOUNT (35.06 vs 29.75) follows from the rate.",
+  "tags": [
+    "multi_issue",
+    "currency_mismatch",
+    "foreign_currency",
+    "missing_po",
+    "subtotal_mismatch",
+    "tax_rate_mismatch",
+    "tax_mismatch"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "INV-NW-20526",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-10-01",
+      "due_date": "2026-10-31",
+      "currency": "EUR",
+      "po_number": null,
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "10",
+          "unit_price": "42.50",
+          "amount": "425.00",
+          "sku": "NW-PAP-2010"
+        },
+        {
+          "description": "Black toner cartridge 58A",
+          "quantity": "2",
+          "unit_price": "89.99",
+          "amount": "179.98",
+          "sku": "NW-TON-058A"
+        }
+      ],
+      "subtotal": "425.00",
+      "tax_rate": "0.07",
+      "tax_amount": "29.75",
+      "total": "454.75"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INV-NW-20526",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-10-01",
+      "due_date": "2026-10-31",
+      "currency": "EUR",
+      "po_number": null,
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "10",
+          "unit_price": "42.50",
+          "amount": "425.00",
+          "sku": "NW-PAP-2010"
+        },
+        {
+          "description": "Black toner cartridge 58A",
+          "quantity": "2",
+          "unit_price": "89.99",
+          "amount": "179.98",
+          "sku": "NW-TON-058A"
+        }
+      ],
+      "subtotal": "425.00",
+      "tax_rate": "0.07",
+      "tax_amount": "29.75",
+      "total": "454.75"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-CURRENCY",
+          "severity": "error",
+          "field": "currency",
+          "expected": "USD",
+          "observed": "EUR"
+        },
+        {
+          "rule_id": "POL-PO-REQUIRED",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        },
+        {
+          "rule_id": "POL-TAX-RATE",
+          "severity": "error",
+          "field": "tax_rate",
+          "expected": "0.0825",
+          "observed": "0.07"
+        },
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "35.06",
+          "observed": "29.75"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "APR-PO-MISSING",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        },
+        {
+          "rule_id": "APR-SUBTOTAL",
+          "severity": "error",
+          "field": "subtotal",
+          "expected": "604.98",
+          "observed": "425.00"
+        },
+        {
+          "rule_id": "POL-CURRENCY",
+          "severity": "error",
+          "field": "currency",
+          "expected": "USD",
+          "observed": "EUR"
+        },
+        {
+          "rule_id": "POL-PO-REQUIRED",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        },
+        {
+          "rule_id": "POL-TAX-RATE",
+          "severity": "error",
+          "field": "tax_rate",
+          "expected": "0.0825",
+          "observed": "0.07"
+        },
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "35.06",
+          "observed": "29.75"
+        }
+      ]
+    }
+  }
+}

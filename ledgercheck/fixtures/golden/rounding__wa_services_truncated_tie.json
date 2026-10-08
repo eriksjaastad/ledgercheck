@@ -1,0 +1,87 @@
+{
+  "case_id": "rounding__wa_services_truncated_tie",
+  "description": "7.25% of 250.00 is 18.125: tax truncated to 18.12 instead of half-up 18.13, a one-cent warning in both stages.",
+  "tags": [
+    "rounding"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "HP-2026-0945",
+      "vendor_name": "Harbor & Pine Consulting",
+      "vendor_id": "V-1003",
+      "invoice_date": "2026-09-27",
+      "due_date": "2026-10-27",
+      "currency": "USD",
+      "po_number": "PO-4500-1306",
+      "line_items": [
+        {
+          "description": "Process mapping session (half day)",
+          "quantity": "1",
+          "unit_price": "250.00",
+          "amount": "250.00"
+        }
+      ],
+      "subtotal": "250.00",
+      "tax_rate": "0.0725",
+      "tax_amount": "18.12",
+      "total": "268.12"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "HP-2026-0945",
+      "vendor_name": "Harbor & Pine Consulting",
+      "vendor_id": "V-1003",
+      "invoice_date": "2026-09-27",
+      "due_date": "2026-10-27",
+      "currency": "USD",
+      "po_number": "PO-4500-1306",
+      "line_items": [
+        {
+          "description": "Process mapping session (half day)",
+          "quantity": "1",
+          "unit_price": "250.00",
+          "amount": "250.00"
+        }
+      ],
+      "subtotal": "250.00",
+      "tax_rate": "0.0725",
+      "tax_amount": "18.12",
+      "total": "268.12"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1003",
+        "tax:US-WA-SVC"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-TAX-ROUNDING",
+          "severity": "warning",
+          "field": "tax_amount",
+          "expected": "18.13",
+          "observed": "18.12"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "flag",
+      "hits": [
+        {
+          "rule_id": "APR-TAX-ROUNDING",
+          "severity": "warning",
+          "field": "tax_amount",
+          "expected": "18.13",
+          "observed": "18.12"
+        },
+        {
+          "rule_id": "POL-TAX-ROUNDING",
+          "severity": "warning",
+          "field": "tax_amount",
+          "expected": "18.13",
+          "observed": "18.12"
+        }
+      ]
+    }
+  }
+}

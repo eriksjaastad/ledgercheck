@@ -1,0 +1,95 @@
+{
+  "case_id": "tax_rate_mismatch__exempt_freight_taxed",
+  "description": "Tax-exempt freight carrier charges 8.25% (99.00 on 1200.00), consistent with its own stated rate: only the vendor's exempt code catches the rate and the amount.",
+  "tags": [
+    "tax_rate_mismatch",
+    "tax_mismatch"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "BPL-88342",
+      "vendor_name": "Bluepeak Logistics",
+      "vendor_id": "V-1002",
+      "invoice_date": "2026-09-28",
+      "due_date": "2026-10-28",
+      "currency": "USD",
+      "po_number": "PO-4500-1312",
+      "line_items": [
+        {
+          "description": "LTL freight Denver CO to Dallas TX",
+          "quantity": "1",
+          "unit_price": "1200.00",
+          "amount": "1200.00"
+        }
+      ],
+      "subtotal": "1200.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "99.00",
+      "total": "1299.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "BPL-88342",
+      "vendor_name": "Bluepeak Logistics",
+      "vendor_id": "V-1002",
+      "invoice_date": "2026-09-28",
+      "due_date": "2026-10-28",
+      "currency": "USD",
+      "po_number": "PO-4500-1312",
+      "line_items": [
+        {
+          "description": "LTL freight Denver CO to Dallas TX",
+          "quantity": "1",
+          "unit_price": "1200.00",
+          "amount": "1200.00"
+        }
+      ],
+      "subtotal": "1200.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "99.00",
+      "total": "1299.00"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1002",
+        "tax:US-FREIGHT-EXEMPT"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-TAX-RATE",
+          "severity": "error",
+          "field": "tax_rate",
+          "expected": "0",
+          "observed": "0.0825"
+        },
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "0.00",
+          "observed": "99.00"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "POL-TAX-RATE",
+          "severity": "error",
+          "field": "tax_rate",
+          "expected": "0",
+          "observed": "0.0825"
+        },
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "0.00",
+          "observed": "99.00"
+        }
+      ]
+    }
+  }
+}

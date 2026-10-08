@@ -1,0 +1,87 @@
+{
+  "case_id": "rounding__half_even_tax",
+  "description": "6% of 80.75 is 4.845, charged 4.84 (banker's rounding): one-cent warning.",
+  "tags": [
+    "rounding"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "TPC-5604",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1272",
+      "line_items": [
+        {
+          "description": "Trade show poster set",
+          "quantity": "1",
+          "unit_price": "80.75",
+          "amount": "80.75"
+        }
+      ],
+      "subtotal": "80.75",
+      "tax_rate": "0.06",
+      "tax_amount": "4.84",
+      "total": "85.59"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "TPC-5604",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1272",
+      "line_items": [
+        {
+          "description": "Trade show poster set",
+          "quantity": "1",
+          "unit_price": "80.75",
+          "amount": "80.75"
+        }
+      ],
+      "subtotal": "80.75",
+      "tax_rate": "0.06",
+      "tax_amount": "4.84",
+      "total": "85.59"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1004",
+        "tax:US-PRINT-6"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-TAX-ROUNDING",
+          "severity": "warning",
+          "field": "tax_amount",
+          "expected": "4.85",
+          "observed": "4.84"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "flag",
+      "hits": [
+        {
+          "rule_id": "APR-TAX-ROUNDING",
+          "severity": "warning",
+          "field": "tax_amount",
+          "expected": "4.85",
+          "observed": "4.84"
+        },
+        {
+          "rule_id": "POL-TAX-ROUNDING",
+          "severity": "warning",
+          "field": "tax_amount",
+          "expected": "4.85",
+          "observed": "4.84"
+        }
+      ]
+    }
+  }
+}

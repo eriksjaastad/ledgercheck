@@ -1,0 +1,65 @@
+{
+  "case_id": "weird_formatting__fullwidth_vendor_name_text",
+  "description": "Letterhead in fullwidth characters ('Ｔａｌｌｏｗ Ｐｒｉｎｔ Ｃｏ．'): NFKC folds the extracted name to the record name, so there is no name hit.",
+  "tags": [
+    "weird_formatting",
+    "vendor_alias"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "TPC-5610",
+      "vendor_name": "Ｔａｌｌｏｗ Ｐｒｉｎｔ Ｃｏ．",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-26",
+      "due_date": "2026-10-26",
+      "currency": "USD",
+      "po_number": "PO-4500-1321",
+      "line_items": [
+        {
+          "description": "Business cards, 500 ct",
+          "quantity": "3",
+          "unit_price": "38.00",
+          "amount": "114.00"
+        }
+      ],
+      "subtotal": "114.00",
+      "tax_rate": "0.06",
+      "tax_amount": "6.84",
+      "total": "120.84"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "TPC-5610",
+      "vendor_name": "Ｔａｌｌｏｗ Ｐｒｉｎｔ Ｃｏ．",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-26",
+      "due_date": "2026-10-26",
+      "currency": "USD",
+      "po_number": "PO-4500-1321",
+      "line_items": [
+        {
+          "description": "Business cards, 500 ct",
+          "quantity": "3",
+          "unit_price": "38.00",
+          "amount": "114.00"
+        }
+      ],
+      "subtotal": "114.00",
+      "tax_rate": "0.06",
+      "tax_amount": "6.84",
+      "total": "120.84"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1004",
+        "tax:US-PRINT-6"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": []
+    }
+  }
+}

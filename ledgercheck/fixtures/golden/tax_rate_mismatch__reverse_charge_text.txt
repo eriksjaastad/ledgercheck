@@ -1,0 +1,19 @@
+KESTREL INDUSTRIAL GmbH
+Musterstrasse 1 · 00000 Musterstadt · USt-IdNr. DE000000000
+Lieferanten-Nr. / Vendor no.: V-2001
+
+RECHNUNG / INVOICE
+Rechnungs-Nr.:  RE-2026-00460
+Datum:          29.09.2026
+Fällig am:      29.10.2026
+Ihre Bestellung / Your PO:  4500-1314
+
+Pos  Art.-Nr.     Bezeichnung                Menge   Einzelpreis      Betrag
+1    KI-PG-016    Pressure gauge 0-16 bar       25       48,90 €   1.222,50 €
+
+                                   Nettobetrag:            1.222,50 €
+                                   USt. 0 %:                   0,00 €
+                                   Gesamtbetrag:           1.222,50 EUR
+
+Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge).
+Zahlbar innerhalb 30 Tagen ohne Abzug.

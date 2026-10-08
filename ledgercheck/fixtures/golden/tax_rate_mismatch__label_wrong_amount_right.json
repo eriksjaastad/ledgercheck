@@ -1,0 +1,90 @@
+{
+  "case_id": "tax_rate_mismatch__label_wrong_amount_right",
+  "description": "Rate printed as 7.25% but tax 29.70 is 8.25% of 359.96 (29.6967): POL-TAX-RATE, and APR-TAX-AMOUNT because 7.25% gives 26.10 (26.0971).",
+  "tags": [
+    "tax_rate_mismatch",
+    "tax_mismatch"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "INV-NW-20522",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-28",
+      "due_date": "2026-10-28",
+      "currency": "USD",
+      "po_number": "PO-4500-1309",
+      "line_items": [
+        {
+          "description": "Black toner cartridge 58A",
+          "quantity": "4",
+          "unit_price": "89.99",
+          "amount": "359.96",
+          "sku": "NW-TON-058A"
+        }
+      ],
+      "subtotal": "359.96",
+      "tax_rate": "0.0725",
+      "tax_amount": "29.70",
+      "total": "389.66"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INV-NW-20522",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-28",
+      "due_date": "2026-10-28",
+      "currency": "USD",
+      "po_number": "PO-4500-1309",
+      "line_items": [
+        {
+          "description": "Black toner cartridge 58A",
+          "quantity": "4",
+          "unit_price": "89.99",
+          "amount": "359.96",
+          "sku": "NW-TON-058A"
+        }
+      ],
+      "subtotal": "359.96",
+      "tax_rate": "0.0725",
+      "tax_amount": "29.70",
+      "total": "389.66"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-TAX-RATE",
+          "severity": "error",
+          "field": "tax_rate",
+          "expected": "0.0825",
+          "observed": "0.0725"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "APR-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "26.10",
+          "observed": "29.70"
+        },
+        {
+          "rule_id": "POL-TAX-RATE",
+          "severity": "error",
+          "field": "tax_rate",
+          "expected": "0.0825",
+          "observed": "0.0725"
+        }
+      ]
+    }
+  }
+}

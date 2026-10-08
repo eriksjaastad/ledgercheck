@@ -1,0 +1,93 @@
+{
+  "case_id": "over_po__eur_gross_over_net_under",
+  "description": "EUR invoice: net 901.20 is under the 1000.00 PO, but the rule compares the total, and 1072.43 with 19% VAT (171.228, so 171.23) is over.",
+  "tags": [
+    "over_po",
+    "po_book",
+    "foreign_currency"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "RE-2026-00452",
+      "vendor_name": "Kestrel Industrial GmbH",
+      "vendor_id": "V-2001",
+      "invoice_date": "2026-09-26",
+      "due_date": "2026-10-26",
+      "currency": "EUR",
+      "po_number": "4500-1304",
+      "line_items": [
+        {
+          "description": "Hydraulic fitting DN25",
+          "quantity": "40",
+          "unit_price": "12.75",
+          "amount": "510.00",
+          "sku": "KI-HF-DN25"
+        },
+        {
+          "description": "Pressure gauge 0-16 bar",
+          "quantity": "8",
+          "unit_price": "48.90",
+          "amount": "391.20",
+          "sku": "KI-PG-016"
+        }
+      ],
+      "subtotal": "901.20",
+      "tax_rate": "0.19",
+      "tax_amount": "171.23",
+      "total": "1072.43"
+    },
+    "po_book": {
+      "4500-1304": "1000.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "RE-2026-00452",
+      "vendor_name": "Kestrel Industrial GmbH",
+      "vendor_id": "V-2001",
+      "invoice_date": "2026-09-26",
+      "due_date": "2026-10-26",
+      "currency": "EUR",
+      "po_number": "4500-1304",
+      "line_items": [
+        {
+          "description": "Hydraulic fitting DN25",
+          "quantity": "40",
+          "unit_price": "12.75",
+          "amount": "510.00",
+          "sku": "KI-HF-DN25"
+        },
+        {
+          "description": "Pressure gauge 0-16 bar",
+          "quantity": "8",
+          "unit_price": "48.90",
+          "amount": "391.20",
+          "sku": "KI-PG-016"
+        }
+      ],
+      "subtotal": "901.20",
+      "tax_rate": "0.19",
+      "tax_amount": "171.23",
+      "total": "1072.43"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-2001",
+        "tax:DE-VAT-STD"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "APR-PO-AMOUNT",
+          "severity": "error",
+          "field": "total",
+          "expected": "1000.00",
+          "observed": "1072.43"
+        }
+      ]
+    }
+  }
+}

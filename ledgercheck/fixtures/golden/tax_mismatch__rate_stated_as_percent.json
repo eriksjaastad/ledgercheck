@@ -1,0 +1,90 @@
+{
+  "case_id": "tax_mismatch__rate_stated_as_percent",
+  "description": "Rate captured as a percent ('8.25', not 0.0825): the 70.13 charged is right for the vendor code, but the stated rate fails POL-TAX-RATE and implies 7012.50 tax (APR-TAX-AMOUNT).",
+  "tags": [
+    "tax_mismatch",
+    "tax_rate_mismatch"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "INV-NW-20521",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-27",
+      "due_date": "2026-10-27",
+      "currency": "USD",
+      "po_number": "PO-4500-1308",
+      "line_items": [
+        {
+          "description": "Standing desk converter",
+          "quantity": "2",
+          "unit_price": "425.00",
+          "amount": "850.00",
+          "sku": "NW-DSK-0210"
+        }
+      ],
+      "subtotal": "850.00",
+      "tax_rate": "8.25",
+      "tax_amount": "70.13",
+      "total": "920.13"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INV-NW-20521",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-27",
+      "due_date": "2026-10-27",
+      "currency": "USD",
+      "po_number": "PO-4500-1308",
+      "line_items": [
+        {
+          "description": "Standing desk converter",
+          "quantity": "2",
+          "unit_price": "425.00",
+          "amount": "850.00",
+          "sku": "NW-DSK-0210"
+        }
+      ],
+      "subtotal": "850.00",
+      "tax_rate": "8.25",
+      "tax_amount": "70.13",
+      "total": "920.13"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-TAX-RATE",
+          "severity": "error",
+          "field": "tax_rate",
+          "expected": "0.0825",
+          "observed": "8.25"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "APR-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "7012.50",
+          "observed": "70.13"
+        },
+        {
+          "rule_id": "POL-TAX-RATE",
+          "severity": "error",
+          "field": "tax_rate",
+          "expected": "0.0825",
+          "observed": "8.25"
+        }
+      ]
+    }
+  }
+}

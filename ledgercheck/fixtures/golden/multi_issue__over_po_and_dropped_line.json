@@ -1,0 +1,101 @@
+{
+  "case_id": "multi_issue__over_po_and_dropped_line",
+  "description": "Subtotal leaves out the markers line (320.00 stated, lines 434.00) and the total 346.40 is over the 300.00 PO; correcting the subtotal only raises the total, so both errors stand.",
+  "tags": [
+    "multi_issue",
+    "over_po",
+    "po_book",
+    "subtotal_mismatch"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "INV-NW-20520",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-27",
+      "due_date": "2026-10-27",
+      "currency": "USD",
+      "po_number": "PO-4500-1305",
+      "line_items": [
+        {
+          "description": "Ergonomic chair mat",
+          "quantity": "5",
+          "unit_price": "64.00",
+          "amount": "320.00",
+          "sku": "NW-MAT-0003"
+        },
+        {
+          "description": "Whiteboard markers, assorted (12 pk)",
+          "quantity": "10",
+          "unit_price": "11.40",
+          "amount": "114.00",
+          "sku": "NW-MRK-0012"
+        }
+      ],
+      "subtotal": "320.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "26.40",
+      "total": "346.40"
+    },
+    "po_book": {
+      "PO-4500-1305": "300.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INV-NW-20520",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-27",
+      "due_date": "2026-10-27",
+      "currency": "USD",
+      "po_number": "PO-4500-1305",
+      "line_items": [
+        {
+          "description": "Ergonomic chair mat",
+          "quantity": "5",
+          "unit_price": "64.00",
+          "amount": "320.00",
+          "sku": "NW-MAT-0003"
+        },
+        {
+          "description": "Whiteboard markers, assorted (12 pk)",
+          "quantity": "10",
+          "unit_price": "11.40",
+          "amount": "114.00",
+          "sku": "NW-MRK-0012"
+        }
+      ],
+      "subtotal": "320.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "26.40",
+      "total": "346.40"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "APR-PO-AMOUNT",
+          "severity": "error",
+          "field": "total",
+          "expected": "300.00",
+          "observed": "346.40"
+        },
+        {
+          "rule_id": "APR-SUBTOTAL",
+          "severity": "error",
+          "field": "subtotal",
+          "expected": "434.00",
+          "observed": "320.00"
+        }
+      ]
+    }
+  }
+}

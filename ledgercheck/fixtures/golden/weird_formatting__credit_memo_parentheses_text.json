@@ -1,0 +1,74 @@
+{
+  "case_id": "weird_formatting__credit_memo_parentheses_text",
+  "description": "Credit memo text with accounting negatives '(55.20)', a 'CR' suffix and 'P.O.: n/a' (no PO): INFO only, approves.",
+  "tags": [
+    "weird_formatting",
+    "credit_note",
+    "missing_po"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "CN-BPL-0436",
+      "vendor_name": "Bluepeak Logistics",
+      "vendor_id": "V-1002",
+      "invoice_date": "2026-09-29",
+      "due_date": null,
+      "currency": "USD",
+      "po_number": null,
+      "line_items": [
+        {
+          "description": "Credit: fuel surcharge overbilled (18% vs 15% of linehaul)",
+          "quantity": "1",
+          "unit_price": "-55.20",
+          "amount": "-55.20"
+        }
+      ],
+      "subtotal": "-55.20",
+      "tax_rate": "0",
+      "tax_amount": "0.00",
+      "total": "-55.20"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "CN-BPL-0436",
+      "vendor_name": "Bluepeak Logistics",
+      "vendor_id": "V-1002",
+      "invoice_date": "2026-09-29",
+      "due_date": null,
+      "currency": "USD",
+      "po_number": null,
+      "line_items": [
+        {
+          "description": "Credit: fuel surcharge overbilled (18% vs 15% of linehaul)",
+          "quantity": "1",
+          "unit_price": "-55.20",
+          "amount": "-55.20"
+        }
+      ],
+      "subtotal": "-55.20",
+      "tax_rate": "0",
+      "tax_amount": "0.00",
+      "total": "-55.20"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1002",
+        "tax:US-FREIGHT-EXEMPT"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": [
+        {
+          "rule_id": "APR-PO-MISSING",
+          "severity": "info",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        }
+      ]
+    }
+  }
+}

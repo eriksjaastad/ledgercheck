@@ -1,0 +1,66 @@
+{
+  "case_id": "clean__rate_with_trailing_zero",
+  "description": "Rate written '0.08250': rates compare as numbers, so it equals the code's 0.0825; tax 14.11 (171.00 x 8.25% = 14.1075, half-up) is clean.",
+  "tags": [
+    "clean"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "INV-NW-20523",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-28",
+      "due_date": "2026-10-28",
+      "currency": "USD",
+      "po_number": "PO-4500-1310",
+      "line_items": [
+        {
+          "description": "Desk organizer, mesh",
+          "quantity": "12",
+          "unit_price": "14.25",
+          "amount": "171.00",
+          "sku": "NW-ORG-0007"
+        }
+      ],
+      "subtotal": "171.00",
+      "tax_rate": "0.08250",
+      "tax_amount": "14.11",
+      "total": "185.11"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INV-NW-20523",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-28",
+      "due_date": "2026-10-28",
+      "currency": "USD",
+      "po_number": "PO-4500-1310",
+      "line_items": [
+        {
+          "description": "Desk organizer, mesh",
+          "quantity": "12",
+          "unit_price": "14.25",
+          "amount": "171.00",
+          "sku": "NW-ORG-0007"
+        }
+      ],
+      "subtotal": "171.00",
+      "tax_rate": "0.08250",
+      "tax_amount": "14.11",
+      "total": "185.11"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": []
+    }
+  }
+}

@@ -1,0 +1,20 @@
+KESTREL INDUSTRIAL GmbH
+Musterstrasse 1 · 00000 Musterstadt · USt-IdNr. DE000000000
+Lieferanten-Nr. / Vendor no.: V-2001
+
+RECHNUNG / INVOICE
+Rechnungs-Nr.:  RE-2026-00417
+Datum:          15.09.2026
+Fällig am:      15.10.2026
+Ihre Bestellung / Your PO:  4500-1215
+
+Pos  Art.-Nr.     Bezeichnung                Menge   Einzelpreis      Betrag
+1    KI-HF-DN25   Hydraulic fitting DN25        40       12,75 €     510,00 €
+2    KI-PG-016    Pressure gauge 0-16 bar        6       48,90 €     293,40 €
+3    -            Versand / Shipping             1      145,00 €     145,00 €
+
+                                   Nettobetrag:              948,40 €
+                                   zzgl. 19 % MwSt.:         180,20 €
+                                   Gesamtbetrag:           1.128,60 EUR
+
+Zahlbar innerhalb 30 Tagen ohne Abzug.

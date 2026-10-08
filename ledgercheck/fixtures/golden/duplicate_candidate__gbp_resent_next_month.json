@@ -1,0 +1,78 @@
+{
+  "case_id": "duplicate_candidate__gbp_resent_next_month",
+  "description": "GCS-INV-77120 re-sent a month later with the same lines and amounts: approves, because duplicates are not checked yet.",
+  "tags": [
+    "duplicate_candidate",
+    "unchecked_gap",
+    "foreign_currency"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "GCS-INV-77120",
+      "vendor_name": "Granite Cloud Services Ltd",
+      "vendor_id": "V-2002",
+      "invoice_date": "2026-10-30",
+      "due_date": "2026-11-29",
+      "currency": "GBP",
+      "po_number": "PO-4500-1222",
+      "line_items": [
+        {
+          "description": "Managed Kubernetes, September (per node)",
+          "quantity": "3",
+          "unit_price": "210.00",
+          "amount": "630.00"
+        },
+        {
+          "description": "Object storage (per TB-month)",
+          "quantity": "4.2",
+          "unit_price": "18.50",
+          "amount": "77.70"
+        }
+      ],
+      "subtotal": "707.70",
+      "tax_rate": "0.20",
+      "tax_amount": "141.54",
+      "total": "849.24"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "GCS-INV-77120",
+      "vendor_name": "Granite Cloud Services Ltd",
+      "vendor_id": "V-2002",
+      "invoice_date": "2026-10-30",
+      "due_date": "2026-11-29",
+      "currency": "GBP",
+      "po_number": "PO-4500-1222",
+      "line_items": [
+        {
+          "description": "Managed Kubernetes, September (per node)",
+          "quantity": "3",
+          "unit_price": "210.00",
+          "amount": "630.00"
+        },
+        {
+          "description": "Object storage (per TB-month)",
+          "quantity": "4.2",
+          "unit_price": "18.50",
+          "amount": "77.70"
+        }
+      ],
+      "subtotal": "707.70",
+      "tax_rate": "0.20",
+      "tax_amount": "141.54",
+      "total": "849.24"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-2002",
+        "tax:UK-VAT-STD"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": []
+    }
+  }
+}

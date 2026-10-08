@@ -1,0 +1,15 @@
+.git
+.venv
+venv
+.env
+.env.*
+.scratch
+.agent
+.terraform
+terraform
+tests
+scripts
+**/__pycache__
+*.egg-info
+build
+dist

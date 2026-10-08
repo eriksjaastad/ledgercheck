@@ -1,0 +1,42 @@
+{
+  "case_id": "subtotal_mismatch",
+  "description": "Stated subtotal is $25.00 more than the line items add up to.",
+  "tags": [
+    "subtotal_mismatch"
+  ],
+  "invoice": {
+    "invoice_number": "TPC-5521",
+    "vendor_name": "Tallow Print Co.",
+    "vendor_id": "V-1004",
+    "invoice_date": "2026-09-12",
+    "due_date": "2026-09-27",
+    "currency": "USD",
+    "po_number": "PO-4500-1190",
+    "line_items": [
+      {
+        "description": "Business cards, 500 ct",
+        "quantity": "6",
+        "unit_price": "38.00",
+        "amount": "228.00",
+        "sku": "TP-BC-500"
+      },
+      {
+        "description": "Tri-fold brochures, 1000 ct",
+        "quantity": "2",
+        "unit_price": "265.00",
+        "amount": "530.00",
+        "sku": "TP-TF-1000"
+      },
+      {
+        "description": "Rush setup fee",
+        "quantity": "1",
+        "unit_price": "75.00",
+        "amount": "75.00"
+      }
+    ],
+    "subtotal": "858.00",
+    "tax_rate": "0.06",
+    "tax_amount": "51.48",
+    "total": "909.48"
+  }
+}

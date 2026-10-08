@@ -1,0 +1,80 @@
+{
+  "case_id": "blank_field__empty_vendor_id_unknown_name",
+  "description": "Vendor id is an empty string, so the lookup and the hit both use the name, which is not on file; the only hint is Tallow Print (shares just 'print').",
+  "tags": [
+    "blank_field",
+    "unknown_vendor"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "CVP-2210",
+      "vendor_name": "Cedar Valley Print Works",
+      "vendor_id": "",
+      "invoice_date": "2026-09-30",
+      "due_date": "2026-10-30",
+      "currency": "USD",
+      "po_number": "PO-4500-1318",
+      "line_items": [
+        {
+          "description": "Trade-show banner",
+          "quantity": "1",
+          "unit_price": "180.00",
+          "amount": "180.00"
+        }
+      ],
+      "subtotal": "180.00",
+      "tax_rate": "0.06",
+      "tax_amount": "10.80",
+      "total": "190.80"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "CVP-2210",
+      "vendor_name": "Cedar Valley Print Works",
+      "vendor_id": "",
+      "invoice_date": "2026-09-30",
+      "due_date": "2026-10-30",
+      "currency": "USD",
+      "po_number": "PO-4500-1318",
+      "line_items": [
+        {
+          "description": "Trade-show banner",
+          "quantity": "1",
+          "unit_price": "180.00",
+          "amount": "180.00"
+        }
+      ],
+      "subtotal": "180.00",
+      "tax_rate": "0.06",
+      "tax_amount": "10.80",
+      "total": "190.80"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1004"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-VENDOR-UNKNOWN",
+          "severity": "error",
+          "field": "vendor_name",
+          "expected": null,
+          "observed": "Cedar Valley Print Works"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "POL-VENDOR-UNKNOWN",
+          "severity": "error",
+          "field": "vendor_name",
+          "expected": null,
+          "observed": "Cedar Valley Print Works"
+        }
+      ]
+    }
+  }
+}

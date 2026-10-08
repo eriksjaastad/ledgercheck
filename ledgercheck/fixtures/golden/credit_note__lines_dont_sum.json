@@ -1,0 +1,93 @@
+{
+  "case_id": "credit_note__lines_dont_sum",
+  "description": "Credit lines total -55.00 but the subtotal says -50.00: an error even on a credit note, next to the INFO for its missing PO.",
+  "tags": [
+    "credit_note",
+    "subtotal_mismatch",
+    "missing_po"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "CN-BPL-0430",
+      "vendor_name": "Bluepeak Logistics",
+      "vendor_id": "V-1002",
+      "invoice_date": "2026-09-29",
+      "due_date": null,
+      "currency": "USD",
+      "po_number": null,
+      "line_items": [
+        {
+          "description": "Credit: detention charge billed in error on BPL-88213",
+          "quantity": "1",
+          "unit_price": "-40.00",
+          "amount": "-40.00"
+        },
+        {
+          "description": "Credit: liftgate surcharge",
+          "quantity": "1",
+          "unit_price": "-15.00",
+          "amount": "-15.00"
+        }
+      ],
+      "subtotal": "-50.00",
+      "tax_rate": "0",
+      "tax_amount": "0.00",
+      "total": "-50.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "CN-BPL-0430",
+      "vendor_name": "Bluepeak Logistics",
+      "vendor_id": "V-1002",
+      "invoice_date": "2026-09-29",
+      "due_date": null,
+      "currency": "USD",
+      "po_number": null,
+      "line_items": [
+        {
+          "description": "Credit: detention charge billed in error on BPL-88213",
+          "quantity": "1",
+          "unit_price": "-40.00",
+          "amount": "-40.00"
+        },
+        {
+          "description": "Credit: liftgate surcharge",
+          "quantity": "1",
+          "unit_price": "-15.00",
+          "amount": "-15.00"
+        }
+      ],
+      "subtotal": "-50.00",
+      "tax_rate": "0",
+      "tax_amount": "0.00",
+      "total": "-50.00"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1002",
+        "tax:US-FREIGHT-EXEMPT"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "APR-PO-MISSING",
+          "severity": "info",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        },
+        {
+          "rule_id": "APR-SUBTOTAL",
+          "severity": "error",
+          "field": "subtotal",
+          "expected": "-55.00",
+          "observed": "-50.00"
+        }
+      ]
+    }
+  }
+}

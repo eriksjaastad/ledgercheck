@@ -1,0 +1,78 @@
+{
+  "case_id": "over_po__one_cent_over",
+  "description": "Total 530.00 is one cent over the 529.99 PO amount: any excess is an error.",
+  "tags": [
+    "over_po",
+    "po_book"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "TPC-5608",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-25",
+      "due_date": "2026-10-25",
+      "currency": "USD",
+      "po_number": "PO-4500-1302",
+      "line_items": [
+        {
+          "description": "Vinyl banner, 3x8 ft",
+          "quantity": "4",
+          "unit_price": "125.00",
+          "amount": "500.00",
+          "sku": "TP-VB-38"
+        }
+      ],
+      "subtotal": "500.00",
+      "tax_rate": "0.06",
+      "tax_amount": "30.00",
+      "total": "530.00"
+    },
+    "po_book": {
+      "PO-4500-1302": "529.99"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "TPC-5608",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-25",
+      "due_date": "2026-10-25",
+      "currency": "USD",
+      "po_number": "PO-4500-1302",
+      "line_items": [
+        {
+          "description": "Vinyl banner, 3x8 ft",
+          "quantity": "4",
+          "unit_price": "125.00",
+          "amount": "500.00",
+          "sku": "TP-VB-38"
+        }
+      ],
+      "subtotal": "500.00",
+      "tax_rate": "0.06",
+      "tax_amount": "30.00",
+      "total": "530.00"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1004",
+        "tax:US-PRINT-6"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "APR-PO-AMOUNT",
+          "severity": "error",
+          "field": "total",
+          "expected": "529.99",
+          "observed": "530.00"
+        }
+      ]
+    }
+  }
+}

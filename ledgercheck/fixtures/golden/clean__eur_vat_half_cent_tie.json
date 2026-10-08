@@ -1,0 +1,67 @@
+{
+  "case_id": "clean__eur_vat_half_cent_tie",
+  "description": "19% of 312.50 is 59.375 and 59.38 is charged (half-up): EUR VAT on a half-cent tie is clean.",
+  "tags": [
+    "clean",
+    "foreign_currency"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "RE-2026-00453",
+      "vendor_name": "Kestrel Industrial GmbH",
+      "vendor_id": "V-2001",
+      "invoice_date": "2026-09-27",
+      "due_date": "2026-10-27",
+      "currency": "EUR",
+      "po_number": "4500-1307",
+      "line_items": [
+        {
+          "description": "Hydraulic fitting DN40",
+          "quantity": "25",
+          "unit_price": "12.50",
+          "amount": "312.50",
+          "sku": "KI-HF-DN40"
+        }
+      ],
+      "subtotal": "312.50",
+      "tax_rate": "0.19",
+      "tax_amount": "59.38",
+      "total": "371.88"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "RE-2026-00453",
+      "vendor_name": "Kestrel Industrial GmbH",
+      "vendor_id": "V-2001",
+      "invoice_date": "2026-09-27",
+      "due_date": "2026-10-27",
+      "currency": "EUR",
+      "po_number": "4500-1307",
+      "line_items": [
+        {
+          "description": "Hydraulic fitting DN40",
+          "quantity": "25",
+          "unit_price": "12.50",
+          "amount": "312.50",
+          "sku": "KI-HF-DN40"
+        }
+      ],
+      "subtotal": "312.50",
+      "tax_rate": "0.19",
+      "tax_amount": "59.38",
+      "total": "371.88"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-2001",
+        "tax:DE-VAT-STD"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": []
+    }
+  }
+}

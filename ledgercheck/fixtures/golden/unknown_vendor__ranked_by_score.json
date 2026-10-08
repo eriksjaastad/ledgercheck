@@ -1,0 +1,80 @@
+{
+  "case_id": "unknown_vendor__ranked_by_score",
+  "description": "Unknown 'Harbor Lane Freight Logistics': Bluepeak (shares freight and logistics, 2/4) ranks above Harbor & Pine (harbor only, 1/4) by score, not by the chunk_id tie-break.",
+  "tags": [
+    "unknown_vendor"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "HLF-3307",
+      "vendor_name": "Harbor Lane Freight Logistics",
+      "vendor_id": null,
+      "invoice_date": "2026-09-30",
+      "due_date": "2026-10-30",
+      "currency": "USD",
+      "po_number": "PO-4500-1317",
+      "line_items": [
+        {
+          "description": "Drayage, port to warehouse",
+          "quantity": "1",
+          "unit_price": "650.00",
+          "amount": "650.00"
+        }
+      ],
+      "subtotal": "650.00",
+      "tax_rate": "0",
+      "tax_amount": "0.00",
+      "total": "650.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "HLF-3307",
+      "vendor_name": "Harbor Lane Freight Logistics",
+      "vendor_id": null,
+      "invoice_date": "2026-09-30",
+      "due_date": "2026-10-30",
+      "currency": "USD",
+      "po_number": "PO-4500-1317",
+      "line_items": [
+        {
+          "description": "Drayage, port to warehouse",
+          "quantity": "1",
+          "unit_price": "650.00",
+          "amount": "650.00"
+        }
+      ],
+      "subtotal": "650.00",
+      "tax_rate": "0",
+      "tax_amount": "0.00",
+      "total": "650.00"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1002",
+        "vendor:V-1003"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-VENDOR-UNKNOWN",
+          "severity": "error",
+          "field": "vendor_name",
+          "expected": null,
+          "observed": "Harbor Lane Freight Logistics"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "POL-VENDOR-UNKNOWN",
+          "severity": "error",
+          "field": "vendor_name",
+          "expected": null,
+          "observed": "Harbor Lane Freight Logistics"
+        }
+      ]
+    }
+  }
+}

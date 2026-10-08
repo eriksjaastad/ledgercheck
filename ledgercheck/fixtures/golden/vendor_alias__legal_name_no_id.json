@@ -1,0 +1,60 @@
+{
+  "case_id": "vendor_alias__legal_name_no_id",
+  "description": "Billed under the legal name with no vendor id: matched by name, INFO only.",
+  "tags": [
+    "vendor_alias"
+  ],
+  "input": {
+    "fixture": "vendor_alias"
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "HPC-2026-0957",
+      "vendor_name": "Harbor and Pine Consulting LLC",
+      "vendor_id": null,
+      "invoice_date": "2026-10-01",
+      "due_date": "2026-10-31",
+      "currency": "USD",
+      "po_number": "PO-4500-1230",
+      "line_items": [
+        {
+          "description": "Workshop facilitation (half day)",
+          "quantity": "1",
+          "unit_price": "1350.00",
+          "amount": "1350.00"
+        }
+      ],
+      "subtotal": "1350.00",
+      "tax_rate": "0.0725",
+      "tax_amount": "97.88",
+      "total": "1447.88"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1003",
+        "tax:US-WA-SVC"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-VENDOR-NO-ID",
+          "severity": "info",
+          "field": "vendor_id",
+          "expected": "V-1003",
+          "observed": null
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": [
+        {
+          "rule_id": "POL-VENDOR-NO-ID",
+          "severity": "info",
+          "field": "vendor_id",
+          "expected": "V-1003",
+          "observed": null
+        }
+      ]
+    }
+  }
+}

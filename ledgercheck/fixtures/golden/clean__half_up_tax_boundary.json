@@ -1,0 +1,64 @@
+{
+  "case_id": "clean__half_up_tax_boundary",
+  "description": "6% of 20.75 is 1.245: half-up gives 1.25 (half-even would give 1.24).",
+  "tags": [
+    "clean"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "TPC-5603",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1271",
+      "line_items": [
+        {
+          "description": "Door hanger cards, 100 pk",
+          "quantity": "1",
+          "unit_price": "20.75",
+          "amount": "20.75"
+        }
+      ],
+      "subtotal": "20.75",
+      "tax_rate": "0.06",
+      "tax_amount": "1.25",
+      "total": "22.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "TPC-5603",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1271",
+      "line_items": [
+        {
+          "description": "Door hanger cards, 100 pk",
+          "quantity": "1",
+          "unit_price": "20.75",
+          "amount": "20.75"
+        }
+      ],
+      "subtotal": "20.75",
+      "tax_rate": "0.06",
+      "tax_amount": "1.25",
+      "total": "22.00"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1004",
+        "tax:US-PRINT-6"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": []
+    }
+  }
+}

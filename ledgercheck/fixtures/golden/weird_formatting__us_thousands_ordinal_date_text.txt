@@ -1,0 +1,16 @@
+HARBOR & PINE CONSULTING
+123 Example Ave., Ste. 400 | Anytown WA 98000
+Vendor # V-1003
+
+INVOICE
+Inv. No.: HP-2026-0931          Date: Sept. 3rd, 2026
+Terms: Net 30 (due Oct 3, 2026)
+P.O. #: PO-4500-1252
+
+Description                              Qty      Rate          Amount
+Workshop facilitation (day rate)          3     $3,250.00     $9,750.00
+Advisory hours                         15.5       $175.00     $2,712.50
+                                                         ---------------
+                                     Sub-Total             $12,462.50
+                                     WA Svc Tax @ 7.25%       $903.53
+                                     AMOUNT DUE (USD)      $13,366.03

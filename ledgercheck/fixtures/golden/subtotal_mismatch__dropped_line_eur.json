@@ -1,0 +1,89 @@
+{
+  "case_id": "subtotal_mismatch__dropped_line_eur",
+  "description": "EUR invoice whose subtotal (and so tax and total) leaves out the second line.",
+  "tags": [
+    "subtotal_mismatch",
+    "foreign_currency"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "RE-2026-00431",
+      "vendor_name": "Kestrel Industrial GmbH",
+      "vendor_id": "V-2001",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "EUR",
+      "po_number": "4500-1216",
+      "line_items": [
+        {
+          "description": "Hydraulic fitting DN25",
+          "quantity": "40",
+          "unit_price": "12.75",
+          "amount": "510.00",
+          "sku": "KI-HF-DN25"
+        },
+        {
+          "description": "Pressure gauge 0-16 bar",
+          "quantity": "6",
+          "unit_price": "48.90",
+          "amount": "293.40",
+          "sku": "KI-PG-016"
+        }
+      ],
+      "subtotal": "510.00",
+      "tax_rate": "0.19",
+      "tax_amount": "96.90",
+      "total": "606.90"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "RE-2026-00431",
+      "vendor_name": "Kestrel Industrial GmbH",
+      "vendor_id": "V-2001",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "EUR",
+      "po_number": "4500-1216",
+      "line_items": [
+        {
+          "description": "Hydraulic fitting DN25",
+          "quantity": "40",
+          "unit_price": "12.75",
+          "amount": "510.00",
+          "sku": "KI-HF-DN25"
+        },
+        {
+          "description": "Pressure gauge 0-16 bar",
+          "quantity": "6",
+          "unit_price": "48.90",
+          "amount": "293.40",
+          "sku": "KI-PG-016"
+        }
+      ],
+      "subtotal": "510.00",
+      "tax_rate": "0.19",
+      "tax_amount": "96.90",
+      "total": "606.90"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-2001",
+        "tax:DE-VAT-STD"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "APR-SUBTOTAL",
+          "severity": "error",
+          "field": "subtotal",
+          "expected": "803.40",
+          "observed": "510.00"
+        }
+      ]
+    }
+  }
+}

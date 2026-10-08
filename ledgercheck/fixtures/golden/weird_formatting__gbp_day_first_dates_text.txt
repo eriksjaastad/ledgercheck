@@ -1,0 +1,18 @@
+GRANITE CLOUD SERVICES LTD
+Registered in England & Wales · VAT Reg. No. GB 000 0000 00
+Supplier ref: V-2002
+
+TAX INVOICE
+Invoice no.      GCS-INV-77231
+Date of issue    01/10/2026
+Payment due      15/10/2026 (14 days)
+Your order ref   PO-4500-1322
+
+Description                                  Qty     Unit price        Net
+Managed Kubernetes, September (per node)       2        £210.00    £420.00
+Object storage (per TB-month)                1.5         £18.50     £27.75
+Egress (per GB)                              300          £0.09     £27.00
+
+                                     Net total                £474.75
+                                     VAT @ 20%                 £94.95
+                                     Total due (GBP)          £569.70

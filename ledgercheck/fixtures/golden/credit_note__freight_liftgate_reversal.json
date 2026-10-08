@@ -1,0 +1,53 @@
+{
+  "case_id": "credit_note__freight_liftgate_reversal",
+  "description": "Credit note with negative amounts and no PO: missing PO is only INFO.",
+  "tags": [
+    "credit_note",
+    "missing_po"
+  ],
+  "input": {
+    "fixture": "credit_note"
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "CN-BPL-0412",
+      "vendor_name": "Bluepeak Logistics",
+      "vendor_id": "V-1002",
+      "invoice_date": "2026-09-22",
+      "due_date": null,
+      "currency": "USD",
+      "po_number": null,
+      "line_items": [
+        {
+          "description": "Credit: liftgate surcharge billed in error on BPL-88213",
+          "quantity": "1",
+          "unit_price": "-95.00",
+          "amount": "-95.00"
+        }
+      ],
+      "subtotal": "-95.00",
+      "tax_rate": "0",
+      "tax_amount": "0.00",
+      "total": "-95.00"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1002",
+        "tax:US-FREIGHT-EXEMPT"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": [
+        {
+          "rule_id": "APR-PO-MISSING",
+          "severity": "info",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        }
+      ]
+    }
+  }
+}

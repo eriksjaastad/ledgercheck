@@ -1,0 +1,52 @@
+{
+  "case_id": "weird_formatting__ocr_noise_text",
+  "description": "OCR'd text with l/I and O/0 confusions, split labels and stray pipes.",
+  "tags": [
+    "weird_formatting"
+  ],
+  "input": {
+    "fixture": "ocr_noise_text"
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INV-NW-20433",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-16",
+      "due_date": "2026-10-16",
+      "currency": "USD",
+      "po_number": "PO-4500-1188",
+      "line_items": [
+        {
+          "description": "Whiteboard markers, assorted (12 pk)",
+          "quantity": "8",
+          "unit_price": "11.40",
+          "amount": "91.20",
+          "sku": "NW-MRK-0012"
+        },
+        {
+          "description": "Ergonomic chair mat",
+          "quantity": "3",
+          "unit_price": "64.00",
+          "amount": "192.00",
+          "sku": "NW-MAT-0003"
+        }
+      ],
+      "subtotal": "283.20",
+      "tax_rate": "0.0825",
+      "tax_amount": "23.36",
+      "total": "306.56"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": []
+    }
+  }
+}

@@ -1,0 +1,8 @@
+# Non-secret inputs. WRITE-ONLY reference stack: nothing in this repo applies it.
+# Copy to terraform.tfvars (gitignored). Secrets go in TF_VAR_* from your
+# secret store.
+
+subscription_id = "00000000-0000-0000-0000-000000000000"
+registry_server = "example.azurecr.io"
+registry_id     = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/example-rg/providers/Microsoft.ContainerRegistry/registries/example"
+image           = "example.azurecr.io/ledgercheck:dev"

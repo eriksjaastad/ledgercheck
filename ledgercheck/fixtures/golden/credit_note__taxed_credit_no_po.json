@@ -1,0 +1,75 @@
+{
+  "case_id": "credit_note__taxed_credit_no_po",
+  "description": "Taxed credit with no PO: -128.00 x 8.25% = -10.56 exactly; a missing PO is only INFO on a credit and the policy PO rule skips credits, so it approves.",
+  "tags": [
+    "credit_note",
+    "missing_po"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "CN-NW-0081",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-29",
+      "due_date": null,
+      "currency": "USD",
+      "po_number": null,
+      "line_items": [
+        {
+          "description": "Return: ergonomic chair mat (damaged)",
+          "quantity": "-2",
+          "unit_price": "64.00",
+          "amount": "-128.00",
+          "sku": "NW-MAT-0003"
+        }
+      ],
+      "subtotal": "-128.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "-10.56",
+      "total": "-138.56"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "CN-NW-0081",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-29",
+      "due_date": null,
+      "currency": "USD",
+      "po_number": null,
+      "line_items": [
+        {
+          "description": "Return: ergonomic chair mat (damaged)",
+          "quantity": "-2",
+          "unit_price": "64.00",
+          "amount": "-128.00",
+          "sku": "NW-MAT-0003"
+        }
+      ],
+      "subtotal": "-128.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "-10.56",
+      "total": "-138.56"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": [
+        {
+          "rule_id": "APR-PO-MISSING",
+          "severity": "info",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        }
+      ]
+    }
+  }
+}

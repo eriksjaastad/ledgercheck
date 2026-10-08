@@ -1,0 +1,68 @@
+{
+  "case_id": "credit_note__return_with_tax_not_in_po_book",
+  "description": "Credit with negative tax: -85.00 x 8.25% = -7.0125 rounds to -7.01 (toward zero; not a half-cent tie); PO not in the book but credits are exempt.",
+  "tags": [
+    "credit_note",
+    "po_book"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "CN-NW-0077",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-24",
+      "due_date": null,
+      "currency": "USD",
+      "po_number": "PO-4500-1182",
+      "line_items": [
+        {
+          "description": "Return: copy paper, damaged cases",
+          "quantity": "-2",
+          "unit_price": "42.50",
+          "amount": "-85.00"
+        }
+      ],
+      "subtotal": "-85.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "-7.01",
+      "total": "-92.01"
+    },
+    "po_book": {
+      "PO-4500-1240": "900.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "CN-NW-0077",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-24",
+      "due_date": null,
+      "currency": "USD",
+      "po_number": "PO-4500-1182",
+      "line_items": [
+        {
+          "description": "Return: copy paper, damaged cases",
+          "quantity": "-2",
+          "unit_price": "42.50",
+          "amount": "-85.00"
+        }
+      ],
+      "subtotal": "-85.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "-7.01",
+      "total": "-92.01"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": []
+    }
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "case_id": "duplicate_candidate__northwind_resubmission",
+  "description": "Baseline resubmitted with the number's hyphens dropped; approves because duplicates are not checked yet.",
+  "tags": [
+    "duplicate_candidate"
+  ],
+  "input": {
+    "fixture": "duplicate_resubmission"
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INVNW20417",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-09",
+      "due_date": "2026-10-09",
+      "currency": "USD",
+      "po_number": "PO-4500-1182",
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "12",
+          "unit_price": "42.50",
+          "amount": "510.00",
+          "sku": "NW-PAP-2010"
+        },
+        {
+          "description": "Black toner cartridge 58A",
+          "quantity": "4",
+          "unit_price": "89.99",
+          "amount": "359.96",
+          "sku": "NW-TON-058A"
+        },
+        {
+          "description": "Desk organizer, mesh",
+          "quantity": "10",
+          "unit_price": "14.25",
+          "amount": "142.50",
+          "sku": "NW-ORG-0007"
+        }
+      ],
+      "subtotal": "1012.46",
+      "tax_rate": "0.0825",
+      "tax_amount": "83.53",
+      "total": "1095.99"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": []
+    }
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "case_id": "unknown_po__not_in_book",
+  "description": "Stated PO is not in the PO book: warning, still payable.",
+  "tags": [
+    "unknown_po",
+    "po_book"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "TPC-5601",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1299",
+      "line_items": [
+        {
+          "description": "Business cards, 500 pk",
+          "quantity": "2",
+          "unit_price": "34.00",
+          "amount": "68.00",
+          "sku": "TP-BC-500"
+        }
+      ],
+      "subtotal": "68.00",
+      "tax_rate": "0.06",
+      "tax_amount": "4.08",
+      "total": "72.08"
+    },
+    "po_book": {
+      "PO-4500-1201": "500.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "TPC-5601",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1299",
+      "line_items": [
+        {
+          "description": "Business cards, 500 pk",
+          "quantity": "2",
+          "unit_price": "34.00",
+          "amount": "68.00",
+          "sku": "TP-BC-500"
+        }
+      ],
+      "subtotal": "68.00",
+      "tax_rate": "0.06",
+      "tax_amount": "4.08",
+      "total": "72.08"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1004",
+        "tax:US-PRINT-6"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "flag",
+      "hits": [
+        {
+          "rule_id": "APR-PO-UNKNOWN",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": "PO-4500-1299"
+        }
+      ]
+    }
+  }
+}

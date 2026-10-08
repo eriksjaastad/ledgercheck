@@ -1,0 +1,76 @@
+{
+  "case_id": "unknown_po__case_differs_from_book",
+  "description": "PO written 'po-4500-1303' while the book holds 'PO-4500-1303': the lookup is exact, so it is an unknown PO (warning).",
+  "tags": [
+    "unknown_po",
+    "po_book"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "HP-2026-0944",
+      "vendor_name": "Harbor & Pine Consulting",
+      "vendor_id": "V-1003",
+      "invoice_date": "2026-09-26",
+      "due_date": "2026-10-26",
+      "currency": "USD",
+      "po_number": "po-4500-1303",
+      "line_items": [
+        {
+          "description": "Advisory hours",
+          "quantity": "12",
+          "unit_price": "175.00",
+          "amount": "2100.00"
+        }
+      ],
+      "subtotal": "2100.00",
+      "tax_rate": "0.0725",
+      "tax_amount": "152.25",
+      "total": "2252.25"
+    },
+    "po_book": {
+      "PO-4500-1303": "5000.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "HP-2026-0944",
+      "vendor_name": "Harbor & Pine Consulting",
+      "vendor_id": "V-1003",
+      "invoice_date": "2026-09-26",
+      "due_date": "2026-10-26",
+      "currency": "USD",
+      "po_number": "po-4500-1303",
+      "line_items": [
+        {
+          "description": "Advisory hours",
+          "quantity": "12",
+          "unit_price": "175.00",
+          "amount": "2100.00"
+        }
+      ],
+      "subtotal": "2100.00",
+      "tax_rate": "0.0725",
+      "tax_amount": "152.25",
+      "total": "2252.25"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1003",
+        "tax:US-WA-SVC"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "flag",
+      "hits": [
+        {
+          "rule_id": "APR-PO-UNKNOWN",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": "po-4500-1303"
+        }
+      ]
+    }
+  }
+}

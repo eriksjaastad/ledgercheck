@@ -1,0 +1,70 @@
+{
+  "case_id": "po_book__partial_billing_under_po",
+  "description": "Total well under the PO amount is partial billing, not a discrepancy.",
+  "tags": [
+    "po_book",
+    "clean"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "INV-NW-20503",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1241",
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "20",
+          "unit_price": "42.50",
+          "amount": "850.00",
+          "sku": "NW-PAP-2010"
+        }
+      ],
+      "subtotal": "850.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "70.13",
+      "total": "920.13"
+    },
+    "po_book": {
+      "PO-4500-1241": "2500.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INV-NW-20503",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1241",
+      "line_items": [
+        {
+          "description": "Copy paper, letter, 20 lb (case of 10 reams)",
+          "quantity": "20",
+          "unit_price": "42.50",
+          "amount": "850.00",
+          "sku": "NW-PAP-2010"
+        }
+      ],
+      "subtotal": "850.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "70.13",
+      "total": "920.13"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": []
+    }
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "case_id": "tax_mismatch__two_cent_gap",
+  "description": "Tax off by two cents: just past the rounding tolerance, an error.",
+  "tags": [
+    "tax_mismatch"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "TPC-5605",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1273",
+      "line_items": [
+        {
+          "description": "Postcards, 1000 pk",
+          "quantity": "1",
+          "unit_price": "100.00",
+          "amount": "100.00"
+        }
+      ],
+      "subtotal": "100.00",
+      "tax_rate": "0.06",
+      "tax_amount": "6.02",
+      "total": "106.02"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "TPC-5605",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-24",
+      "due_date": "2026-10-24",
+      "currency": "USD",
+      "po_number": "PO-4500-1273",
+      "line_items": [
+        {
+          "description": "Postcards, 1000 pk",
+          "quantity": "1",
+          "unit_price": "100.00",
+          "amount": "100.00"
+        }
+      ],
+      "subtotal": "100.00",
+      "tax_rate": "0.06",
+      "tax_amount": "6.02",
+      "total": "106.02"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1004",
+        "tax:US-PRINT-6"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "6.00",
+          "observed": "6.02"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "APR-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "6.00",
+          "observed": "6.02"
+        },
+        {
+          "rule_id": "POL-TAX-AMOUNT",
+          "severity": "error",
+          "field": "tax_amount",
+          "expected": "6.00",
+          "observed": "6.02"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "case_id": "weird_formatting__us_thousands_ordinal_date_text",
+  "description": "US text invoice: thousands commas, '$', ordinal date, abbreviated labels, fractional hours.",
+  "tags": [
+    "weird_formatting"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "HP-2026-0931",
+      "vendor_name": "Harbor & Pine Consulting",
+      "vendor_id": "V-1003",
+      "invoice_date": "2026-09-03",
+      "due_date": "2026-10-03",
+      "currency": "USD",
+      "po_number": "PO-4500-1252",
+      "line_items": [
+        {
+          "description": "Workshop facilitation (day rate)",
+          "quantity": "3",
+          "unit_price": "3250.00",
+          "amount": "9750.00"
+        },
+        {
+          "description": "Advisory hours",
+          "quantity": "15.5",
+          "unit_price": "175.00",
+          "amount": "2712.50"
+        }
+      ],
+      "subtotal": "12462.50",
+      "tax_rate": "0.0725",
+      "tax_amount": "903.53",
+      "total": "13366.03"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "HP-2026-0931",
+      "vendor_name": "Harbor & Pine Consulting",
+      "vendor_id": "V-1003",
+      "invoice_date": "2026-09-03",
+      "due_date": "2026-10-03",
+      "currency": "USD",
+      "po_number": "PO-4500-1252",
+      "line_items": [
+        {
+          "description": "Workshop facilitation (day rate)",
+          "quantity": "3",
+          "unit_price": "3250.00",
+          "amount": "9750.00"
+        },
+        {
+          "description": "Advisory hours",
+          "quantity": "15.5",
+          "unit_price": "175.00",
+          "amount": "2712.50"
+        }
+      ],
+      "subtotal": "12462.50",
+      "tax_rate": "0.0725",
+      "tax_amount": "903.53",
+      "total": "13366.03"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1003",
+        "tax:US-WA-SVC"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": []
+    }
+  }
+}

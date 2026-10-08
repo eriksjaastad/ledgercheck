@@ -1,0 +1,64 @@
+{
+  "case_id": "unchecked_gap__total_not_subtotal_plus_tax",
+  "description": "Total 770.75 is 20.00 more than subtotal 700.00 + tax 50.75 = 750.75; total arithmetic is not checked yet, so it approves.",
+  "tags": [
+    "unchecked_gap"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "HP-2026-0947",
+      "vendor_name": "Harbor & Pine Consulting",
+      "vendor_id": "V-1003",
+      "invoice_date": "2026-10-02",
+      "due_date": "2026-11-01",
+      "currency": "USD",
+      "po_number": "PO-4500-1328",
+      "line_items": [
+        {
+          "description": "Advisory hours",
+          "quantity": "4",
+          "unit_price": "175.00",
+          "amount": "700.00"
+        }
+      ],
+      "subtotal": "700.00",
+      "tax_rate": "0.0725",
+      "tax_amount": "50.75",
+      "total": "770.75"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "HP-2026-0947",
+      "vendor_name": "Harbor & Pine Consulting",
+      "vendor_id": "V-1003",
+      "invoice_date": "2026-10-02",
+      "due_date": "2026-11-01",
+      "currency": "USD",
+      "po_number": "PO-4500-1328",
+      "line_items": [
+        {
+          "description": "Advisory hours",
+          "quantity": "4",
+          "unit_price": "175.00",
+          "amount": "700.00"
+        }
+      ],
+      "subtotal": "700.00",
+      "tax_rate": "0.0725",
+      "tax_amount": "50.75",
+      "total": "770.75"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1003",
+        "tax:US-WA-SVC"
+      ],
+      "hits": []
+    },
+    "approval": {
+      "outcome": "approve",
+      "hits": []
+    }
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "case_id": "no_tax_rate__one_cent_gap_policy_only",
+  "description": "No rate printed and tax 4.84 vs 6% of 80.75 = 4.845 (half-up 4.85): only the policy stage sees the one-cent gap.",
+  "tags": [
+    "no_tax_rate",
+    "rounding"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "TPC-5609",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-28",
+      "due_date": "2026-10-28",
+      "currency": "USD",
+      "po_number": "PO-4500-1313",
+      "line_items": [
+        {
+          "description": "Postcards, 4x6 in, 1000 ct",
+          "quantity": "1",
+          "unit_price": "80.75",
+          "amount": "80.75",
+          "sku": "TP-PC-1000"
+        }
+      ],
+      "subtotal": "80.75",
+      "tax_rate": null,
+      "tax_amount": "4.84",
+      "total": "85.59"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "TPC-5609",
+      "vendor_name": "Tallow Print Co.",
+      "vendor_id": "V-1004",
+      "invoice_date": "2026-09-28",
+      "due_date": "2026-10-28",
+      "currency": "USD",
+      "po_number": "PO-4500-1313",
+      "line_items": [
+        {
+          "description": "Postcards, 4x6 in, 1000 ct",
+          "quantity": "1",
+          "unit_price": "80.75",
+          "amount": "80.75",
+          "sku": "TP-PC-1000"
+        }
+      ],
+      "subtotal": "80.75",
+      "tax_rate": null,
+      "tax_amount": "4.84",
+      "total": "85.59"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1004",
+        "tax:US-PRINT-6"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-TAX-ROUNDING",
+          "severity": "warning",
+          "field": "tax_amount",
+          "expected": "4.85",
+          "observed": "4.84"
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "flag",
+      "hits": [
+        {
+          "rule_id": "POL-TAX-ROUNDING",
+          "severity": "warning",
+          "field": "tax_amount",
+          "expected": "4.85",
+          "observed": "4.84"
+        }
+      ]
+    }
+  }
+}

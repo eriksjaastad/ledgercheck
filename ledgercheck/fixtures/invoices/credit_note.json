@@ -1,0 +1,29 @@
+{
+  "case_id": "credit_note",
+  "description": "Credit note reversing the liftgate surcharge on BPL-88213; negative amounts, no PO.",
+  "tags": [
+    "credit_note",
+    "missing_po"
+  ],
+  "invoice": {
+    "invoice_number": "CN-BPL-0412",
+    "vendor_name": "Bluepeak Logistics",
+    "vendor_id": "V-1002",
+    "invoice_date": "2026-09-22",
+    "due_date": null,
+    "currency": "USD",
+    "po_number": null,
+    "line_items": [
+      {
+        "description": "Credit: liftgate surcharge billed in error on BPL-88213",
+        "quantity": "1",
+        "unit_price": "-95.00",
+        "amount": "-95.00"
+      }
+    ],
+    "subtotal": "-95.00",
+    "tax_rate": "0",
+    "tax_amount": "0.00",
+    "total": "-95.00"
+  }
+}

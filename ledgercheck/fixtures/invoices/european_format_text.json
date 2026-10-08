@@ -1,0 +1,43 @@
+{
+  "case_id": "european_format_text",
+  "description": "German text invoice: comma decimals, dot thousands, DD.MM.YYYY dates, PO under a bilingual label.",
+  "tags": [
+    "weird_formatting",
+    "foreign_currency"
+  ],
+  "invoice": {
+    "invoice_number": "RE-2026-00417",
+    "vendor_name": "Kestrel Industrial GmbH",
+    "vendor_id": "V-2001",
+    "invoice_date": "2026-09-15",
+    "due_date": "2026-10-15",
+    "currency": "EUR",
+    "po_number": "4500-1215",
+    "line_items": [
+      {
+        "description": "Hydraulic fitting DN25",
+        "quantity": "40",
+        "unit_price": "12.75",
+        "amount": "510.00",
+        "sku": "KI-HF-DN25"
+      },
+      {
+        "description": "Pressure gauge 0-16 bar",
+        "quantity": "6",
+        "unit_price": "48.90",
+        "amount": "293.40",
+        "sku": "KI-PG-016"
+      },
+      {
+        "description": "Shipping",
+        "quantity": "1",
+        "unit_price": "145.00",
+        "amount": "145.00"
+      }
+    ],
+    "subtotal": "948.40",
+    "tax_rate": "0.19",
+    "tax_amount": "180.20",
+    "total": "1128.60"
+  }
+}

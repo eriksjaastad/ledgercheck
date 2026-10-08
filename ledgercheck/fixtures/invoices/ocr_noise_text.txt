@@ -1,0 +1,17 @@
+N0RTHWIND  OFFICE  SUPPLY          | Vendor lD: V-1001
+1200 Commerce Way, Suite 4OO       |
+                                   |  lnvoice No:  INV-NW-20433
+B|LL TO: Accounts Payable          |  Date: Sep 16, 2026
+                                   |  Terms: Net 30   Due: 10/16/2026
+P.O.
+#: PO-4500-1188
+
+QTY  ITEM          DESCRlPTION                             PRICE     AMOUNT
+ 8   NW-MRK-0012   Whiteboard markers, assorted (12 pk)    11.4O      91.20
+ 3   NW-MAT-0003   Ergonomic chair mat                     64.00     192.0O
+                                                       ----------------------
+                                          SUBTOTAL               283.20
+                                          SALES TAX 8.25%         23.36
+                                          T0TAL DUE  USD    $   306.56
+
+Thank y0u for your business!

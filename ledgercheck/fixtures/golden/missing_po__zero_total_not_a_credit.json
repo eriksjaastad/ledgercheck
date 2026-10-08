@@ -1,0 +1,89 @@
+{
+  "case_id": "missing_po__zero_total_not_a_credit",
+  "description": "No-charge warranty invoice (total 0.00) with no PO: zero is not negative, so it is not exempt as a credit note and both PO warnings fire.",
+  "tags": [
+    "missing_po"
+  ],
+  "input": {
+    "invoice": {
+      "invoice_number": "INV-NW-20519",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-26",
+      "due_date": "2026-10-26",
+      "currency": "USD",
+      "po_number": null,
+      "line_items": [
+        {
+          "description": "Warranty replacement, black toner cartridge 58A (no charge)",
+          "quantity": "1",
+          "unit_price": "0.00",
+          "amount": "0.00",
+          "sku": "NW-TON-058A"
+        }
+      ],
+      "subtotal": "0.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "0.00",
+      "total": "0.00"
+    }
+  },
+  "expected": {
+    "extraction": {
+      "invoice_number": "INV-NW-20519",
+      "vendor_name": "Northwind Office Supply",
+      "vendor_id": "V-1001",
+      "invoice_date": "2026-09-26",
+      "due_date": "2026-10-26",
+      "currency": "USD",
+      "po_number": null,
+      "line_items": [
+        {
+          "description": "Warranty replacement, black toner cartridge 58A (no charge)",
+          "quantity": "1",
+          "unit_price": "0.00",
+          "amount": "0.00",
+          "sku": "NW-TON-058A"
+        }
+      ],
+      "subtotal": "0.00",
+      "tax_rate": "0.0825",
+      "tax_amount": "0.00",
+      "total": "0.00"
+    },
+    "policy": {
+      "retrieved": [
+        "vendor:V-1001",
+        "tax:US-TX-STD"
+      ],
+      "hits": [
+        {
+          "rule_id": "POL-PO-REQUIRED",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        }
+      ]
+    },
+    "approval": {
+      "outcome": "flag",
+      "hits": [
+        {
+          "rule_id": "APR-PO-MISSING",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        },
+        {
+          "rule_id": "POL-PO-REQUIRED",
+          "severity": "warning",
+          "field": "po_number",
+          "expected": null,
+          "observed": null
+        }
+      ]
+    }
+  }
+}
