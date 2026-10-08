@@ -964,3 +964,94 @@ def test_a_non_ascii_key_is_refused(monkeypatch):
     monkeypatch.setenv(API_KEY_ENV, KEY.replace("real", "réal"))
     with pytest.raises(ConnectionConfigError, match="non-ASCII"):
         connections.require_live()
+
+
+# --- hostile config: only ever a config problem (exit 2), never a traceback -----------
+
+
+def test_a_5000_digit_max_tokens_in_the_file_is_a_config_error(local, capsys):
+    local(toml="max_tokens = " + "9" * 5000 + "\n")
+    settings = load_settings()  # documented as never raising
+    assert any("not valid TOML (a value is too large)" in p for p in settings.problems)
+    assert "9" * 50 not in " ".join(settings.problems)  # file contents are never echoed
+    code, err = _connections_exit(capsys)
+    assert code == 2 and "a value is too large" in err
+    assert type(connections.router()) is MockRouter
+    assert cli_main(["judge", "--case", CASE]) == judge.EXIT_PASS
+
+
+DEEP_ARRAY = "a = " + "[" * 100_000 + "]" * 100_000 + "\n"
+HOSTILE_TOML = {
+    "huge int spend cap": "spend_cap_usd = " + "9" * 5000 + "\n",
+    "huge int price": f'[prices."{MODEL}"]\nprompt = {"9" * 5000}\ncompletion = 1\n',
+    "huge float": "spend_cap_usd = 1e999999\n",
+    "long float": "spend_cap_usd = 0." + "0" * 5000 + "1\n",
+    "datetime for a number": "max_tokens = 1979-05-27T07:32:00Z\n",
+    "time for a number": "spend_cap_usd = 07:32:00\n",
+    "date for a string": "provider = 1979-05-27\n",
+    "date for the key": "api_key = 1979-05-27\n",
+    "datetime price": f'[prices."{MODEL}"]\nprompt = 1979-05-27\ncompletion = 1\n',
+    "invalid date": "max_tokens = 2021-02-30\n",
+    "deep array": DEEP_ARRAY,
+    "deep inline table": "a = " + "{b = " * 5000 + "1" + "}" * 5000 + "\n",
+    "deep table header": "[" + ".".join(["a"] * 20_000) + "]\n",
+    "big array for a table": "models = [" + ", ".join(["1"] * 100_000) + "]\n",
+    "huge string": 'base_url = "https://' + "a" * 500_000 + '.example/v1"\n',
+    "empty model key": '[models]\n"" = "vendor/x"\n',
+    "numeric-looking keys": '[prices."1"]\nprompt = 1\ncompletion = 1\n[models]\n"2" = "x"\n',
+    "array prices": "prices = [1, 2]\n",
+    "odd price entry": f'[prices."{MODEL}"]\nprompt = [1]\ncompletion = {{}}\n',
+    "binary garbage": "\x00\x01\x02 = \x03\n",
+}
+
+
+def _assert_only_config_errors(capsys):
+    settings = load_settings()  # must not raise
+    code, err = _connections_exit(capsys)
+    assert code in (0, 2) and (code == 2) == bool(settings.problems)
+    assert type(connections.router()) is MockRouter  # the offline default still works
+    return settings
+
+
+@pytest.mark.parametrize("case", list(HOSTILE_TOML))
+def test_hostile_connections_files_are_only_ever_config_problems(local, capsys, case):
+    local(toml=HOSTILE_TOML[case])
+    _assert_only_config_errors(capsys)
+    assert cli_main(["judge", "--case", CASE]) == judge.EXIT_PASS
+
+
+def test_an_oversized_or_binary_connections_file_is_a_config_problem(local, capsys):
+    root = local()
+    (root / "connections.local.toml").write_bytes(b"# " + b"x" * (1 << 20) + b"\n")
+    assert any("larger than" in p for p in _assert_only_config_errors(capsys).problems)
+    (root / "connections.local.toml").write_bytes(bytes(range(256)))
+    assert _assert_only_config_errors(capsys).problems
+
+
+HOSTILE_ENV = [
+    ("max_tokens", "9" * 5000), ("max_tokens", "9" * 100_000), ("max_tokens", "1e400"),
+    ("max_tokens", "٣"), ("max_tokens", "0x10"), ("max_tokens", "+5"),
+    ("spend_cap_usd", "9" * 5000), ("spend_cap_usd", "1e" + "9" * 30),
+    ("spend_cap_usd", "0x1p3"), ("spend_cap_usd", "\udcff"), ("spend_cap_usd", "-0"),
+    ("base_url", "https://["), ("base_url", "https://" + "a" * 100_000),
+    ("provider", "\x1b[31mmock"), ("model_large", "x" * 100_000), ("api_key", "\udcff" * 30),
+]
+
+
+@pytest.mark.parametrize("name, value", HOSTILE_ENV,
+                         ids=[f"{n}-{i}" for i, (n, _) in enumerate(HOSTILE_ENV)])
+def test_hostile_env_values_are_only_ever_config_problems(monkeypatch, capsys, name, value):
+    monkeypatch.setenv(ENV[name], value)
+    settings = load_settings()  # must not raise
+    code, err = _connections_exit(capsys)
+    assert code in (0, 2) and (code == 2) == bool(settings.problems)
+    try:
+        router = connections.router()
+    except ConnectionConfigError:  # an unknown provider is the documented config error
+        router = None
+    assert router is None or type(router) is MockRouter
+
+
+def test_a_hostile_connections_file_path_is_a_config_problem(monkeypatch, capsys):
+    monkeypatch.setenv(connections.CONNECTIONS_FILE_ENV, "a" * 5000)  # name too long
+    assert _assert_only_config_errors(capsys).problems

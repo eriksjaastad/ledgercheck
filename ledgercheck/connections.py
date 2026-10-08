@@ -182,7 +182,10 @@ def _scrub(text: Any, key: str | None, limit: int = MAX_ERROR_CHARS) -> str:
 
 def _shown(value: Any) -> str:
     """A setting's value for an error message, kept short."""
-    text = repr(value)
+    try:
+        text = repr(value)
+    except (ValueError, RecursionError):  # an int over the digit limit, absurd nesting
+        text = f"a {type(value).__name__}"
     return text if len(text) <= 40 else text[:40] + "..."
 
 
@@ -251,6 +254,8 @@ def _read_config(path: Path, required: bool) -> dict[str, Any]:
         raise ConnectionConfigError(f"{path}: {exc}") from None
     except RecursionError:
         raise ConnectionConfigError(f"{path}: nested too deeply") from None
+    except (ValueError, OverflowError):  # e.g. an integer over Python's 4300-digit limit
+        raise ConnectionConfigError(f"{path}: not valid TOML (a value is too large)") from None
     unknown = set(data) - _FILE_KEYS
     if unknown:
         raise ConnectionConfigError(f"{path}: unknown keys {sorted(unknown)}; "
@@ -304,7 +309,7 @@ def _decimal(value: Any, what: str, maximum: Decimal) -> Decimal:
     if isinstance(value, (int, float, str)) and not isinstance(value, bool):
         try:
             number = Decimal(str(value).strip())
-        except InvalidOperation:
+        except (InvalidOperation, ValueError):  # str() of an int past the digit limit
             number = None
     if number is None:
         raise ConnectionConfigError(f"{what} must be a number, got {_shown(value)}")
@@ -320,7 +325,12 @@ _WHOLE = re.compile(r"[0-9]{1,7}")  # ASCII digits only: "²".isdigit() is true
 def _max_tokens(raw: Any) -> int:
     if raw is None:
         return DEFAULT_MAX_TOKENS
-    text = str(raw).strip() if isinstance(raw, (int, str)) and not isinstance(raw, bool) else ""
+    text = ""
+    if isinstance(raw, (int, str)) and not isinstance(raw, bool):
+        try:
+            text = str(raw).strip()
+        except ValueError:  # an int past the digit limit
+            text = ""
     if not _WHOLE.fullmatch(text) or not 0 < int(text) <= MAX_MAX_TOKENS:
         raise ConnectionConfigError(
             f"max_tokens must be a whole number from 1 to {MAX_MAX_TOKENS}, got {_shown(raw)}")
