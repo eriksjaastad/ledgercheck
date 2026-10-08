@@ -24,15 +24,7 @@ pytest
 
 ## Connecting a model (optional)
 
-Nothing is sent anywhere unless you opt in. Supply an OpenRouter key in any one of these ways (the first one found wins):
-
-- an environment variable: `export OPENROUTER_API_KEY=...`, or a secrets manager that injects it, e.g. `doppler run -- ledgercheck judge --live --case <case_id>`;
-- a `.env` file in the working directory (copy `.env.example`);
-- `connections.local.toml` (copy `connections.example.toml`), which also holds the provider, model ids, prices and spend cap.
-
-Both local files are gitignored. Then `ledgercheck connections` shows what was picked up, and `LEDGERCHECK_LLM=1 ledgercheck judge --live --case <case_id>` runs one case live. `ledgercheck connections --help` lists every setting.
-
-Before pushing changes, enable the leak guard once per clone: `git config core.hooksPath .githooks`.
+To connect a model with your own key, or to enable the leak-guard pre-push hook, see `ledgercheck connections --help`.
 
 ## Docker
 
