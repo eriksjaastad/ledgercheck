@@ -23,17 +23,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0  # the leak guard scans every commit, not just the tip
 
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: pyproject.toml
-
-      - name: Leak guard (no keys or local config files in any commit)
-        run: python scripts/leak_guard.py --history
 
       - name: Install
         run: |

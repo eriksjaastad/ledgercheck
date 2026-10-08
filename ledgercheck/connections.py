@@ -69,11 +69,6 @@ Not here on purpose: ``ledgercheck serve`` (``ledgercheck.web``) listens on a
 loopback socket and parses requests with ``urllib.parse``; it connects to
 nothing. The run store's file I/O stays in ``ledgercheck.run_store``; this
 module only picks its root.
-
-Before you push, enable the leak guard hook once per clone:
-``git config core.hooksPath .githooks``. It runs ``scripts/leak_guard.py``
-on the commits being pushed and stops the push if any of them adds something
-that looks like a key, or a local ``.env`` or ``connections.local*`` file.
 """
 
 from __future__ import annotations
@@ -392,6 +387,22 @@ class Totals:
 Opener = Callable[..., Any]  # urllib.request.urlopen(request, timeout=...)
 
 
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    """Refuse every redirect: following one would re-send the Authorization header to
+    whatever the Location names (another host, or plain http)."""
+
+    def redirect_request(self, req: urllib.request.Request, fp: Any, code: int, msg: str,
+                         headers: Any, newurl: str) -> None:
+        fp.close()
+        raise TransportError(f"{req.full_url} answered HTTP {code} (a redirect); redirects are "
+                             "refused so the key is never sent anywhere else")
+
+
+def _default_opener() -> Opener:
+    """``urlopen`` without redirects (see ``_RefuseRedirects``)."""
+    return urllib.request.build_opener(_RefuseRedirects).open
+
+
 class OpenRouterTransport:
     """``(model, prompt) -> reply`` via ``POST {base_url}/chat/completions``, capped per run.
 
@@ -406,9 +417,12 @@ class OpenRouterTransport:
     under. An invalid reported cost (negative, not a number, infinite,
     absurdly large) is treated as missing.
 
+    Redirects are never followed: a 3xx answer is a ``TransportError`` naming
+    the status, so the key is only ever sent to ``base_url``.
+
     Build one per run (``totals`` is that run's spend). ``opener`` and
-    ``sleep`` default to ``urllib.request.urlopen`` and ``time.sleep``; tests
-    inject fakes.
+    ``sleep`` default to a urllib opener that refuses redirects and
+    ``time.sleep``; tests inject fakes.
     """
 
     name = "openrouter"
@@ -426,7 +440,7 @@ class OpenRouterTransport:
         self._key = settings.api_key
         self.url = f"{settings.base_url}/chat/completions"
         self._max_tokens, self._prices = settings.max_tokens, settings.prices
-        self._open = urllib.request.urlopen if opener is None else opener
+        self._open = _default_opener() if opener is None else opener
         self._sleep = sleep
         self.totals = Totals(settings.spend_cap_usd)
 

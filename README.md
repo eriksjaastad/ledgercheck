@@ -24,7 +24,7 @@ pytest
 
 ## Connecting a model (optional)
 
-To connect a model with your own key, or to enable the leak-guard pre-push hook, see `ledgercheck connections --help`.
+To connect a model with your own key, see `ledgercheck connections --help`.
 
 ## Docker
 

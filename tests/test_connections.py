@@ -1,14 +1,18 @@
-"""Connections: settings resolution, the spend gate and cap, the OpenRouter transport (faked
-opener, no sockets), provider swapping by config, and the key never leaking."""
+"""Connections: settings resolution, the spend gate and cap, the OpenRouter transport (a faked
+opener, plus loopback servers for redirects), provider swapping by config, and the key never
+leaking."""
 
 import email.message
 import http.client
 import io
 import json
 import re
+import socketserver
+import threading
 import urllib.error
 import urllib.request
 from decimal import Decimal
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -271,7 +275,7 @@ def test_connections_help_explains_resolution_and_the_hook(capsys):
         cli_main(["connections", "--help"])
     text = capsys.readouterr().out
     for needle in ("process environment", ".env", "connections.local.toml", CONNECTIONS_FILE_ENV,
-                   "doppler run --", "git config core.hooksPath .githooks", "spend_cap_usd"):
+                   "doppler run --", "spend_cap_usd"):
         assert needle in text
 
 
@@ -494,7 +498,7 @@ def test_cli_live_judge_survives_bad_reported_costs(local, monkeypatch, capsys):
     monkeypatch.setenv(API_KEY_ENV, KEY)
     opener = FakeOpener(completion(PERFECT, prompt_tokens=900, completion_tokens=40, cost=-5),
                         completion(PERFECT, prompt_tokens=900, completion_tokens=40, cost="NaN"))
-    monkeypatch.setattr(urllib.request, "urlopen", opener)
+    monkeypatch.setattr(connections, "_default_opener", lambda: opener)
     args = ["judge", "--live", "--case", cases[0].case_id, "--case", cases[1].case_id]
     assert cli_main(args) == judge.EXIT_PASS
     out = capsys.readouterr().out
@@ -526,7 +530,7 @@ def test_cli_live_judge_runs_one_case_and_prints_totals(local, monkeypatch, caps
     monkeypatch.setenv(ENV_FLAG, "1")
     monkeypatch.setenv(API_KEY_ENV, KEY)
     opener = FakeOpener(completion(PERFECT, prompt_tokens=900, completion_tokens=40, cost=0.001))
-    monkeypatch.setattr(urllib.request, "urlopen", opener)
+    monkeypatch.setattr(connections, "_default_opener", lambda: opener)
     assert cli_main(["judge", "--live", "--case", CASE]) == judge.EXIT_PASS
     out = capsys.readouterr().out
     assert "suite (openrouter judge): 1/1 cases passed" in out
@@ -540,7 +544,7 @@ def test_cli_live_judge_stops_at_the_cap(local, monkeypatch, capsys):
     monkeypatch.setenv(ENV_FLAG, "1")
     monkeypatch.setenv(API_KEY_ENV, KEY)
     opener = FakeOpener()
-    monkeypatch.setattr(urllib.request, "urlopen", opener)
+    monkeypatch.setattr(connections, "_default_opener", lambda: opener)
     assert cli_main(["judge", "--live", "--case", CASE]) == judge.EXIT_ERROR
     err = capsys.readouterr().err
     assert "spend cap" in err and "0 calls" in err and opener.requests == []
@@ -577,3 +581,92 @@ def test_a_broken_llm_config_does_not_break_the_offline_pipeline(local):
     local(toml="max_tokens = -5\n")
     assert type(connections.tracer()) is NullTracer
     assert run_pipeline("clean_baseline").decision.outcome.value == "approve"
+
+
+# --- redirects are refused (real local servers, loopback only) ------------------------
+
+
+class _LocalServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)  # skip the reverse DNS lookup
+
+
+@pytest.fixture
+def local_server(monkeypatch):
+    """Start loopback HTTP servers whose handler calls ``respond(handler)``; returns base URLs."""
+    for name in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy",
+                 "ALL_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("no_proxy", "*")  # a proxy must not see or reroute these requests
+    started = []
+
+    def start(respond):
+        class Handler(BaseHTTPRequestHandler):
+            def handle_any(self):
+                self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                respond(self)
+
+            do_GET = do_POST = handle_any
+
+            def log_message(self, *args):
+                pass
+
+        server = _LocalServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, args=(0.05,), daemon=True)
+        thread.start()
+        started.append((server, thread))
+        return f"http://127.0.0.1:{server.server_address[1]}"
+
+    yield start
+    for server, thread in started:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=10)
+
+
+def _at(base_url):
+    return connections.Settings(**{**live_settings().__dict__, "base_url": base_url})
+
+
+@pytest.mark.parametrize("code", [301, 302, 303, 307, 308])
+def test_redirects_are_refused_and_the_key_is_never_forwarded(local_server, code):
+    caught = []
+
+    def accept(handler):  # would take the key and answer
+        caught.append(handler.headers.get("Authorization") is not None)
+        body = json.dumps(completion("ok", cost=0)).encode()
+        handler.send_response(200)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.end_headers()
+        handler.wfile.write(body)
+
+    target = local_server(accept)
+
+    def redirect(handler):
+        handler.send_response(code)
+        handler.send_header("Location", f"{target}/api/v1/chat/completions?q=query-part#frag-part")
+        handler.send_header("Content-Length", "0")
+        handler.end_headers()
+
+    origin = local_server(redirect)
+    transport = OpenRouterTransport(_at(f"{origin}/api/v1"),
+                                    sleep=lambda s: pytest.fail("retried"))
+    with pytest.raises(TransportError, match=f"HTTP {code} \\(a redirect\\)") as exc:
+        transport(MODEL, "x")
+    message = str(exc.value)
+    assert KEY not in message and "query-part" not in message and "frag-part" not in message
+    assert caught == []  # the second server never saw a request, so the key was never forwarded
+    # Control: the same default opener talking to the accepting server directly does send it.
+    assert OpenRouterTransport(_at(f"{target}/api/v1"))(MODEL, "x") == "ok"
+    assert caught == [True]
+
+
+def test_local_config_files_are_ignored_by_git_and_docker():
+    root = Path(__file__).resolve().parents[1]
+    for ignore in (".gitignore", ".dockerignore"):
+        lines = set((root / ignore).read_text(encoding="utf-8").splitlines())
+        assert {".env", ".env.*", "connections.local*"} <= lines, ignore
+    assert "!.env.example" in (root / ".gitignore").read_text(encoding="utf-8").splitlines()

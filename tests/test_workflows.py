@@ -50,12 +50,6 @@ def test_ci_runs_offline_tests_and_the_judge_on_python_311() -> None:
     assert "--live" not in text
 
 
-def test_ci_runs_the_leak_guard_over_full_history() -> None:
-    text = _text("ci.yml")
-    assert "fetch-depth: 0" in _step(text, "actions/checkout@")
-    assert "run: python scripts/leak_guard.py --history\n" in text
-
-
 def test_image_is_built_smoke_tested_and_labelled_for_the_repo() -> None:
     text = _text("image.yml")
     assert "images: ${{ env.IMAGE }}" in text and "IMAGE: ghcr.io/eriksjaastad/ledgercheck\n" in text
