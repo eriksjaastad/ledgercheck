@@ -278,6 +278,8 @@ def test_connections_help_explains_where_settings_come_from(capsys):
     for needle in ("process environment", ".env", "connections.local.toml", CONNECTIONS_FILE_ENV,
                    "doppler run --", "spend_cap_usd"):
         assert needle in text
+    assert ("readable UTF-8 regular file of at most 1 MiB; otherwise ``ledgercheck connections`` "
+            "and live runs exit 2 naming it, while offline runs carry on") in " ".join(text.split())
 
 
 # --- the transport -----------------------------------------------------------
@@ -737,6 +739,9 @@ def test_scrub_masks_before_cutting():
     text = "x" * 295 + KEY
     _assert_hidden(connections._scrub(text, KEY))
     assert connections._scrub(text, None) == "x" * 295 + KEY[:5] + "..."  # no key known: cut only
+    # a key straddling the cut never leaves its first 1-7 characters behind
+    assert all(KEY[:n] not in connections._scrub("x" * (300 - n) + KEY + "y" * 50, KEY)
+               for n in range(1, 8))
 
 
 def test_an_unreadable_error_body_is_not_a_traceback():
@@ -880,6 +885,20 @@ def test_an_unreadable_connections_file_or_directory_exits_2(local, monkeypatch,
         assert cli_main(["judge", "--case", CASE]) == judge.EXIT_PASS
     finally:
         locked.chmod(0o755)
+
+
+def test_a_connections_file_in_a_locked_directory_exits_2_without_a_dotenv(local, monkeypatch,
+                                                                           capsys):
+    locked = local() / "locked"  # no .env anywhere: only the connections file can fail
+    locked.mkdir()
+    (locked / "connections.local.toml").write_text(LIVE_TOML)
+    monkeypatch.setattr(connections, "DEFAULT_CONFIG", locked / "connections.local.toml")
+    locked.chmod(0)  # on 3.14 Path.exists() would say False here instead of raising
+    try:
+        code, err = _connections_exit(capsys)
+    finally:
+        locked.chmod(0o755)
+    assert code == 2 and "connections.local.toml: Permission denied" in err
 
 
 @pytest.mark.parametrize("make, problem", [
