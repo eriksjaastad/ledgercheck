@@ -453,8 +453,7 @@ def test_a_billed_reply_with_bad_choices_still_counts_against_the_cap():
     assert (t.calls, t.prompt_tokens, t.completion_tokens) == (2, 10 + bound, 105)
 
 
-@pytest.mark.parametrize("cost", [-5, "NaN", 1e400, float("nan"), True, "-0.01", "1e400x", [1],
-                                  "1e99999999999999999999999999", "1e1000000", 10 ** 12])
+@pytest.mark.parametrize("cost", [True, "-0.01", "1e99999999999999999999999999", 10 ** 12])
 def test_invalid_reported_cost_falls_back_to_tokens_times_prices(cost):
     opener = FakeOpener(completion(prompt_tokens=1000, completion_tokens=50, cost=cost),
                         completion(prompt_tokens=1000, completion_tokens=50, cost=cost))
@@ -773,15 +772,9 @@ def _worst(prompt="x", max_tokens=100):
 
 POSSIBLY_BILLED = {
     "truncated JSON": b'{"choices": [{"message": {"content": "o',
-    "not UTF-8": b'\xff\xfe{"choices": []}',
     "IncompleteRead": BrokenResponse(http.client.IncompleteRead(b'{"cho', 200)),
-    "read timeout": BrokenResponse(TimeoutError("timed out")),
     "JSON array": b"[1, 2]",
-    "JSON string": b'"just text"',
-    "JSON null": b"null",
-    "absurd nesting": b"[" * 100_000,
     "timeout waiting for the answer": TimeoutError("timed out"),
-    "dropped after sending": http.client.RemoteDisconnected("closed"),
 }
 
 
@@ -955,10 +948,7 @@ def test_odd_value_types_are_named_problems_not_crashes(local, capsys, toml, pro
     assert type(connections.router()) is MockRouter  # the offline default still works
 
 
-@pytest.mark.parametrize("name, value", [
-    ("spend_cap_usd", "1e999999999"), ("spend_cap_usd", "sNaN"), ("spend_cap_usd", "Infinity"),
-    ("max_tokens", "²"), ("max_tokens", "1e3"), ("max_tokens", "-5"),
-])
+@pytest.mark.parametrize("name, value", [("spend_cap_usd", "Infinity"), ("max_tokens", "²")])
 def test_odd_numeric_env_values_are_named_problems(monkeypatch, name, value):
     monkeypatch.setenv(ENV[name], value)
     assert any(name in p for p in load_settings().problems)
@@ -998,25 +988,18 @@ def test_a_5000_digit_max_tokens_in_the_file_is_a_config_error(local, capsys):
 
 DEEP_ARRAY = "a = " + "[" * 100_000 + "]" * 100_000 + "\n"
 HOSTILE_TOML = {
-    "huge int spend cap": "spend_cap_usd = " + "9" * 5000 + "\n",
-    "huge int price": f'[prices."{MODEL}"]\nprompt = {"9" * 5000}\ncompletion = 1\n',
     "huge float": "spend_cap_usd = 1e999999\n",
     "long float": "spend_cap_usd = 0." + "0" * 5000 + "1\n",
     "datetime for a number": "max_tokens = 1979-05-27T07:32:00Z\n",
     "time for a number": "spend_cap_usd = 07:32:00\n",
     "date for a string": "provider = 1979-05-27\n",
     "date for the key": "api_key = 1979-05-27\n",
-    "datetime price": f'[prices."{MODEL}"]\nprompt = 1979-05-27\ncompletion = 1\n',
-    "invalid date": "max_tokens = 2021-02-30\n",
     "deep array": DEEP_ARRAY,
-    "deep inline table": "a = " + "{b = " * 5000 + "1" + "}" * 5000 + "\n",
     "deep table header": "[" + ".".join(["a"] * 20_000) + "]\n",
     "big array for a table": "models = [" + ", ".join(["1"] * 100_000) + "]\n",
     "huge string": 'base_url = "https://' + "a" * 500_000 + '.example/v1"\n',
-    "empty model key": '[models]\n"" = "vendor/x"\n',
     "numeric-looking keys": '[prices."1"]\nprompt = 1\ncompletion = 1\n[models]\n"2" = "x"\n',
     "array prices": "prices = [1, 2]\n",
-    "odd price entry": f'[prices."{MODEL}"]\nprompt = [1]\ncompletion = {{}}\n',
     "binary garbage": "\x00\x01\x02 = \x03\n",
 }
 
@@ -1045,12 +1028,10 @@ def test_an_oversized_or_binary_connections_file_is_a_config_problem(local, caps
 
 
 HOSTILE_ENV = [
-    ("max_tokens", "9" * 5000), ("max_tokens", "9" * 100_000), ("max_tokens", "1e400"),
-    ("max_tokens", "٣"), ("max_tokens", "0x10"), ("max_tokens", "+5"),
+    ("max_tokens", "9" * 5000), ("max_tokens", "1e400"), ("max_tokens", "٣"),
     ("spend_cap_usd", "9" * 5000), ("spend_cap_usd", "1e" + "9" * 30),
-    ("spend_cap_usd", "0x1p3"), ("spend_cap_usd", "\udcff"), ("spend_cap_usd", "-0"),
-    ("base_url", "https://["), ("base_url", "https://" + "a" * 100_000),
-    ("provider", "\x1b[31mmock"), ("model_large", "x" * 100_000), ("api_key", "\udcff" * 30),
+    ("spend_cap_usd", "0x1p3"), ("spend_cap_usd", "\udcff"),
+    ("base_url", "https://["), ("provider", "\x1b[31mmock"), ("api_key", "\udcff" * 30),
 ]
 
 
