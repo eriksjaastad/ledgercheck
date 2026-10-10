@@ -303,40 +303,25 @@ def _read_dotenv(path: Path) -> dict[str, str]:
 
 
 def _read_config(path: Path, required: bool) -> dict[str, Any]:
-    """The connections file as a dict (``{}`` when absent and not ``required``).
+    """The connections file's settings, or a ``ConnectionConfigError`` saying why it is unusable.
 
-    Every read or parse failure is a ``ConnectionConfigError`` naming the path
-    and the problem, never the file's contents.
+    An absent default file is ``{}``. Messages name the path, never the file's contents.
     """
-    raw, problem = None, None
+    where = _sanitize(str(path))
     try:
-        raw = _read_limited(path)
-    except (FileNotFoundError, NotADirectoryError):
-        if required:
-            problem = f"{CONNECTIONS_FILE_ENV} names {path}, which does not exist"
-    except PermissionError:
-        problem = f"cannot read {path}: permission denied"
-    except ValueError:  # a NUL byte in the path
-        problem = f"{CONNECTIONS_FILE_ENV} is not a usable file path"
+        if not required and not path.exists():
+            return {}
+        data = tomllib.loads(_read_limited(path).decode("utf-8"))
     except OSError as exc:
-        problem = f"cannot read {path}: {exc.strerror or type(exc).__name__}"
-    if problem is not None:
-        raise ConnectionConfigError(problem)
-    if raw is None:
-        return {}
-    try:
-        data = tomllib.loads(raw.decode("utf-8"))
-    except UnicodeDecodeError:
-        raise ConnectionConfigError(f"cannot read {path}: not UTF-8") from None
+        raise ConnectionConfigError(f"cannot read {where}: {exc.strerror or type(exc).__name__}"
+                                    ) from None
     except tomllib.TOMLDecodeError as exc:
-        raise ConnectionConfigError(f"{path}: {exc}") from None
-    except RecursionError:
-        raise ConnectionConfigError(f"{path}: nested too deeply") from None
-    except (ValueError, OverflowError):  # e.g. an integer over Python's 4300-digit limit
-        raise ConnectionConfigError(f"{path}: not valid TOML (a value is too large)") from None
+        raise ConnectionConfigError(f"{where}: {exc}") from None
+    except (ValueError, RecursionError):  # bad UTF-8, a NUL in the path, huge integers, deep nesting
+        raise ConnectionConfigError(f"{where} is not a readable UTF-8 TOML file") from None
     unknown = set(data) - _FILE_KEYS
     if unknown:
-        raise ConnectionConfigError(f"{path}: unknown keys {sorted(unknown)}; "
+        raise ConnectionConfigError(f"{where}: unknown keys {sorted(unknown)}; "
                                     f"allowed: {sorted(_FILE_KEYS)}")
     return data
 

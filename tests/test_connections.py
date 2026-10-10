@@ -130,9 +130,9 @@ def test_connections_file_env_names_another_file(local, tmp_path, monkeypatch):
     monkeypatch.setenv(CONNECTIONS_FILE_ENV, str(other))
     assert load_settings().provider == "openrouter"
     monkeypatch.setenv(CONNECTIONS_FILE_ENV, str(tmp_path / "missing.toml"))
-    assert "does not exist" in load_settings().problems[0]
+    assert "No such file" in load_settings().problems[0]
     monkeypatch.setenv(ENV_FLAG, "1")
-    with pytest.raises(ConnectionConfigError, match="does not exist"):
+    with pytest.raises(ConnectionConfigError, match="No such file"):
         connections.require_live()
 
 
@@ -860,10 +860,10 @@ def _connections_exit(capsys):
 def test_a_non_utf8_connections_file_exits_2(local, monkeypatch, capsys):
     (local() / "connections.local.toml").write_bytes(b'provider = "\xff"\n')
     code, err = _connections_exit(capsys)
-    assert code == 2 and "not UTF-8" in err
+    assert code == 2 and "not a readable UTF-8 TOML file" in err
     monkeypatch.setenv(ENV_FLAG, "1")
     assert cli_main(["judge", "--live"]) == judge.EXIT_ERROR  # the live path says the same
-    assert "not UTF-8" in capsys.readouterr().err
+    assert "not a readable UTF-8 TOML file" in capsys.readouterr().err
 
 
 @pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs a non-root POSIX user")
@@ -873,7 +873,7 @@ def test_an_unreadable_connections_file_or_directory_exits_2(local, monkeypatch,
     path.chmod(0)
     try:
         code, err = _connections_exit(capsys)
-        assert code == 2 and "permission denied" in err
+        assert code == 2 and "Permission denied" in err
     finally:
         path.chmod(0o644)
     locked = root / "locked"
@@ -884,7 +884,7 @@ def test_an_unreadable_connections_file_or_directory_exits_2(local, monkeypatch,
     locked.chmod(0)
     try:
         code, err = _connections_exit(capsys)  # stat() itself is refused
-        assert code == 2 and "permission denied" in err
+        assert code == 2 and "Permission denied" in err
         assert load_settings().api_key is None  # an unreadable .env is skipped, not a crash
         assert cli_main(["judge", "--case", CASE]) == judge.EXIT_PASS
     finally:
@@ -912,7 +912,7 @@ def test_odd_dotenv_files_are_skipped(local, monkeypatch, capsys):
 def test_a_nul_byte_in_the_connections_file_path_exits_2(local, capsys):
     local(dotenv=f"{connections.CONNECTIONS_FILE_ENV}=conn\x00ections.toml\n")
     code, err = _connections_exit(capsys)
-    assert code == 2 and "not a usable file path" in err
+    assert code == 2 and "not a readable UTF-8 TOML file" in err
     assert "\x00" not in capsys.readouterr().out
 
 
@@ -989,10 +989,10 @@ def test_a_non_ascii_key_is_refused(monkeypatch):
 def test_a_5000_digit_max_tokens_in_the_file_is_a_config_error(local, capsys):
     local(toml="max_tokens = " + "9" * 5000 + "\n")
     settings = load_settings()  # documented as never raising
-    assert any("not valid TOML (a value is too large)" in p for p in settings.problems)
+    assert any("not a readable UTF-8 TOML file" in p for p in settings.problems)
     assert "9" * 50 not in " ".join(settings.problems)  # file contents are never echoed
     code, err = _connections_exit(capsys)
-    assert code == 2 and "a value is too large" in err
+    assert code == 2 and "not a readable UTF-8 TOML file" in err
     assert type(connections.router()) is MockRouter
     assert cli_main(["judge", "--case", CASE]) == judge.EXIT_PASS
 
