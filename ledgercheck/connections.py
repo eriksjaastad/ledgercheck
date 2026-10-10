@@ -1007,6 +1007,7 @@ class _MaskedStream:
     """A text stream that writes through to ``unmasked`` with every secret masked, line by line."""
 
     withheld = False  # the masking-failure notice is shown once per stream
+
     def __init__(self, unmasked: Any, show: Callable[[Any], str]) -> None:
         self.unmasked, self.show = unmasked, show
 
@@ -1067,8 +1068,7 @@ def describe(env: Mapping[str, str] | None = None) -> list[tuple[str, str, str]]
 
 def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.ArgumentParser:
     """Add the connections options to ``parser``; --help shows this module's docstring."""
-    if parser is None:
-        parser = argparse.ArgumentParser(prog="python -m ledgercheck.connections")
+    parser = parser or argparse.ArgumentParser()
     parser.description = __doc__
     parser.formatter_class = argparse.RawDescriptionHelpFormatter
     return parser

@@ -4,6 +4,7 @@ import copy
 import json
 import re
 import socket
+import sys
 from decimal import Decimal
 
 import pytest
@@ -336,3 +337,12 @@ def test_help_documents_the_rubric(capsys) -> None:
         assert f"``{c.name}`` (threshold {c.threshold})" in text
     assert "--live" in text and "Exit codes" in text and "OPENROUTER_API_KEY" in text
     assert "--case" in text and "ledgercheck connections --help" in text
+
+
+def test_langfuse_keys_without_the_sdk_exit_2_with_the_remedy(monkeypatch, capsys) -> None:
+    monkeypatch.setitem(sys.modules, "langfuse", None)  # import langfuse -> ImportError
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-test")
+    assert cli_main(["judge", "--case", CASES[0].case_id]) == judge.EXIT_ERROR
+    err = capsys.readouterr().err
+    assert "pip install 'ledgercheck[langfuse]', or unset the keys" in err and "unexpected" not in err

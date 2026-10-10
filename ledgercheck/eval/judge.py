@@ -118,6 +118,7 @@ from ledgercheck.golden import (
     run_case,
 )
 from ledgercheck.models import ApprovalDecision, Invoice, to_jsonable
+from ledgercheck.observability import LangfuseUnavailable
 
 SCORE_MIN, SCORE_MAX = 0, 5
 
@@ -439,8 +440,7 @@ def format_report(report: SuiteReport) -> str:
 
 def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.ArgumentParser:
     """Add the judge options to ``parser`` (a new one by default); --help shows this docstring."""
-    if parser is None:
-        parser = argparse.ArgumentParser(prog="python -m ledgercheck.eval.judge")
+    parser = parser or argparse.ArgumentParser()
     parser.description = __doc__
     parser.formatter_class = argparse.RawDescriptionHelpFormatter
     parser.add_argument("--json", type=Path, metavar="PATH",
@@ -497,7 +497,7 @@ def run(args: argparse.Namespace) -> int:
         cases = select_cases(args.case)
         live = _live_judge() if args.live else None
         report = run_suite(MockJudge() if live is None else live, cases)
-    except (LiveLLMDisabled, TransportError, GoldenError, JudgeError) as exc:
+    except (LiveLLMDisabled, TransportError, GoldenError, JudgeError, LangfuseUnavailable) as exc:
         print(f"judge: {exc}", file=sys.stderr)
         if live is not None and live.totals is not None:
             print(f"live run ({live.model}): {live.totals.line()}", file=sys.stderr)

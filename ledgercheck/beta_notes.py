@@ -77,7 +77,7 @@ def template() -> str:
 
 def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.ArgumentParser:
     """Set up the beta-notes parser (a new one by default); --help shows the docstring."""
-    parser = parser or argparse.ArgumentParser(prog="python -m ledgercheck.beta_notes")
+    parser = parser or argparse.ArgumentParser()
     parser.description = __doc__
     parser.formatter_class = argparse.RawDescriptionHelpFormatter
     return parser

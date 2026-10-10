@@ -350,8 +350,7 @@ def _port(text: str) -> int:
 
 def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.ArgumentParser:
     """Add the serve options to ``parser`` (a new one by default); --help shows the docstring."""
-    if parser is None:
-        parser = argparse.ArgumentParser(prog="python -m ledgercheck.web")
+    parser = parser or argparse.ArgumentParser()
     parser.description = __doc__
     parser.formatter_class = argparse.RawDescriptionHelpFormatter
     parser.add_argument("--host", default=DEFAULT_HOST, help="loopback bind address (127.0.0.0/8)")
