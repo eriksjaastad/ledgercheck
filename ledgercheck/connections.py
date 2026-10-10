@@ -57,8 +57,17 @@ UTF-8 byte of the messages plus a fixed overhead, plus ``max_tokens``, at
 your prices) must fit in what is left of ``spend_cap_usd``, or the call is
 refused. After the call its actual cost is added: the provider's reported
 cost, else tokens times prices with each count capped at its pre-call bound,
-so an unreported cost never exceeds that worst case. HTTP 429 is retried up
-to 3 times, honouring ``Retry-After`` (capped at 30 s).
+so an unreported cost never exceeds that worst case. The cap is only as
+accurate as the prices you enter. HTTP 429 is retried up to 3 times,
+honouring ``Retry-After`` (capped at 30 s); the fallback model and
+context-window handling are designed but not built (runbook in
+``ledgercheck.agents.routing``).
+
+Only the LLM judge (``ledgercheck judge --live``) uses a live model today; live
+invoice extraction and policy rerank are not implemented
+(``ledgercheck.agents.llm_client``). The OpenRouter transport follows the
+documented chat-completions API (cost from the response's ``usage.cost``), but
+the test suite exercises it only against a fake server.
 
 Checking your setup
 -------------------
@@ -157,8 +166,10 @@ class TransportError(RuntimeError):
     """The provider answered with an error or could not be reached."""
 
 
-_MIN_KEY_RUN = 8  # a run of this many characters of a secret is masked
-_MIN_SECRET = 4  # shorter secrets cannot be masked without garbling ordinary text
+# A secret of 8+ characters is masked anywhere, and so is any 8+ character run of it.
+# A shorter one is masked wherever it stands as a whole token (not inside a longer
+# word), so even a one-character password never shows, without garbling other words.
+_MIN_KEY_RUN = 8
 
 
 def _sanitize(text: str) -> str:
@@ -170,19 +181,27 @@ def _forms(secrets: Iterable[Any]) -> list[str]:
     control characters made spaces (as the output will be), longest first."""
     forms = set()
     for secret in secrets:
-        if isinstance(secret, str) and len(secret.strip()) >= _MIN_SECRET:
+        if isinstance(secret, str) and secret.strip():  # any length; blank is no secret
             secret = secret.strip()
             forms |= {_sanitize(f) for f in (secret, repr(secret)[1:-1], json.dumps(secret)[1:-1])}
-    return sorted((f for f in forms if len(f) >= _MIN_SECRET), key=len, reverse=True)
+    return sorted((f for f in forms if f.strip()), key=len, reverse=True)
+
+
+def _token_at(text: str, i: int, form: str) -> bool:
+    """``form`` starts at ``text[i]`` and is not part of a longer alphanumeric word."""
+    end = i + len(form)
+    return (text.startswith(form, i)
+            and (i == 0 or not (text[i - 1].isalnum() and form[0].isalnum()))
+            and (end == len(text) or not (text[end].isalnum() and form[-1].isalnum())))
 
 
 def _run_at(text: str, i: int, forms: list[str]) -> int:
-    """Length of the secret piece starting at ``text[i]``: a whole short secret, or the
-    longest 8+ character run of a long one; 0 if none."""
+    """Length of the secret piece starting at ``text[i]``: a short secret standing as a
+    whole token, or the longest 8+ character run of a long one; 0 if none."""
     best = 0
     for form in forms:
         if len(form) < _MIN_KEY_RUN:
-            if text.startswith(form, i):
+            if _token_at(text, i, form):
                 best = max(best, len(form))
             continue
         n = 0
@@ -225,12 +244,15 @@ def _holds_secret(text: str, secret: str | None) -> bool:
 
 
 def _url_userinfo(url: Any) -> list[str]:
-    """The user and password in a URL (raw and percent-decoded), if it has any."""
+    """The password in a URL, of any length, and a user name of 8+ characters (a token
+    passed as the user); raw and percent-decoded. A short user name is not a secret."""
     if not isinstance(url, str):
         return []
     try:
         parts = urllib.parse.urlsplit(url.strip())
-        found = [parts.username, parts.password]
+        found = [parts.password]
+        if parts.username and len(parts.username) >= _MIN_KEY_RUN:
+            found.append(parts.username)
     except ValueError:  # e.g. a broken IPv6 host: no userinfo to find
         found = []
     return [v for x in found if x for v in (x, urllib.parse.unquote(x))]
@@ -432,8 +454,20 @@ def _base_url(raw: Any) -> str:
     return url
 
 
+def _usable_cap(cap: Decimal | None) -> Decimal:
+    """The spend cap a live run can use (above 0). One rule for settings validation and
+    the transport, so ``ledgercheck connections`` passes exactly what can run."""
+    if cap is None or not cap > 0:
+        raise ConnectionConfigError(
+            "a live run needs a spend cap above 0: set LEDGERCHECK_SPEND_CAP_USD or "
+            "spend_cap_usd in connections.local.toml (USD)")
+    return cap
+
+
 def _cap(raw: Any) -> Decimal | None:
-    return None if raw is None else _decimal(raw, "spend_cap_usd", MAX_SPEND_CAP_USD)
+    if raw is None:
+        return None
+    return _usable_cap(_decimal(raw, "spend_cap_usd", MAX_SPEND_CAP_USD))
 
 
 def _provider(raw: Any) -> str:
@@ -731,10 +765,7 @@ class OpenRouterTransport:
         if not _key_ok(settings.api_key):
             raise ConnectionConfigError(
                 f"{API_KEY_ENV} contains whitespace, control or non-ASCII characters")
-        if settings.spend_cap_usd is None or settings.spend_cap_usd <= 0:
-            raise ConnectionConfigError(
-                "a live run needs a spend cap: set LEDGERCHECK_SPEND_CAP_USD or spend_cap_usd "
-                "in connections.local.toml (USD, > 0)")
+        _usable_cap(settings.spend_cap_usd)
         self._key = settings.api_key
         self._secrets = (*settings.secrets, settings.api_key)  # what every message is masked with
         self.url = f"{settings.base_url}/chat/completions"

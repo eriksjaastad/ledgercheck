@@ -1430,3 +1430,43 @@ def test_mask_cuts_only_after_masking_every_secret():
         _assert_hidden(shown, secret=s)
     assert connections.mask_lines(f"a {secrets[0]}\nb", {API_KEY_ENV: secrets[0]}) == (
         "a [redacted]\nb")
+
+
+def test_a_short_url_password_is_masked_as_a_whole_token(monkeypatch, capsys):
+    monkeypatch.setenv(connections.HOST_ENV, "https:/" + "/u:abc@example.test")
+    monkeypatch.setenv(ENV["provider"], "abc")  # the password, pasted into another setting
+    settings = load_settings()
+    texts = [repr(settings), *settings.problems,
+             *(c for row in connections.describe() for c in row)]
+    try:
+        connections.router()
+    except ConnectionConfigError as exc:
+        texts.append(str(exc))
+    assert cli_main(["connections"]) == 2
+    out = capsys.readouterr()
+    texts += [out.out, out.err]
+    shown = any(re.search(r"(?<![A-Za-z0-9])abc(?![A-Za-z0-9])", t) for t in texts)
+    assert not shown, "the short password is shown as a whole word"
+    assert "unknown provider '[redacted]'" in out.err  # masked, other words left intact
+
+
+def test_a_spend_cap_of_zero_fails_validation_like_the_transport(local, monkeypatch, capsys):
+    local(toml=LIVE_TOML.replace("spend_cap_usd = 0.05", "spend_cap_usd = 0"))
+    monkeypatch.setenv(API_KEY_ENV, KEY)
+    code, err = _connections_exit(capsys)
+    assert code == 2 and "a live run needs a spend cap above 0" in err
+    zero = connections.Settings(**{**live_settings().__dict__, "spend_cap_usd": Decimal(0)})
+    with pytest.raises(ConnectionConfigError, match="a live run needs a spend cap above 0"):
+        OpenRouterTransport(zero, opener=FakeOpener())  # the same rule at use time
+
+
+def test_live_mode_limits_live_in_the_help_not_in_issues(capsys):
+    issues = (Path(__file__).resolve().parents[1] / "ISSUES.md").read_text(encoding="utf-8")
+    [bullet] = [line for line in issues.splitlines() if "Live LLM mode" in line]
+    assert "`ledgercheck connections --help`" in bullet and len(bullet) < 200
+    with pytest.raises(SystemExit):
+        cli_main(["connections", "--help"])
+    text = " ".join(capsys.readouterr().out.split())
+    for moved in ("Only the LLM judge", "not implemented", "usage.cost", "fake server",
+                  "only as accurate as the prices", "no built-in model ids or prices"):
+        assert moved in text
