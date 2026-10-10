@@ -163,7 +163,7 @@ def test_bad_config_stops_only_a_live_run(local, monkeypatch, capsys, dotenv, to
     assert KEY not in str(exc.value)
 
 
-JUNK_DOTENV = (b"junk line\n=no name\n\xff\xfe not utf-8\nexport\n[section]\n"
+JUNK_DOTENV = (b"junk line\n=no name\nexport\n[section]\n"
                b"LEDGERCHECK_MAX_TOKENS=lots\nLANGFUSE_PUBLIC_KEY=pk-only\n")
 
 
@@ -876,7 +876,7 @@ def test_an_unreadable_connections_file_or_directory_exits_2(local, monkeypatch,
     try:
         code, err = _connections_exit(capsys)  # stat() itself is refused
         assert code == 2 and "Permission denied" in err
-        assert load_settings().api_key is None  # an unreadable .env is skipped, not a crash
+        assert ".env: Permission denied" in err  # an unreadable .env is reported too
         assert cli_main(["judge", "--case", CASE]) == judge.EXIT_PASS
     finally:
         locked.chmod(0o755)
@@ -892,12 +892,19 @@ def test_odd_files_at_the_config_path_exit_2_without_hanging(local, capsys, make
     assert code == 2 and problem in err
 
 
-def test_odd_dotenv_files_are_skipped(local, monkeypatch, capsys):
+def test_a_fifo_dotenv_exits_2_without_hanging(local, capsys):
     os.mkfifo(local() / ".env")  # reading a FIFO would block forever
-    assert load_settings().problems == ()
-    (local() / "connections.local.toml").write_text(LIVE_TOML)
-    monkeypatch.setenv(API_KEY_ENV, KEY)  # a complete live config
-    assert cli_main(["connections"]) == 0
+    code, err = _connections_exit(capsys)
+    assert code == 2 and "not a regular file" in err
+
+
+def test_a_dotenv_that_is_not_utf8_exits_2_without_showing_it(local, capsys):
+    (local() / ".env").write_bytes(f"{API_KEY_ENV}={KEY}\n".encode() + b"\xff\xfe\n")
+    assert cli_main(["connections"]) == 2
+    out = capsys.readouterr()
+    assert "cannot read" in out.err and "UnicodeDecodeError" in out.err
+    _assert_hidden(out.out + out.err, secret=KEY)
+    assert cli_main(["judge", "--case", CASE]) == judge.EXIT_PASS  # offline still works
 
 
 def test_a_nul_byte_in_the_connections_file_path_exits_2(local, capsys):
@@ -1395,6 +1402,11 @@ def test_blank_or_whitespace_secrets_mask_nothing():
 def test_a_short_secret_inside_a_longer_word_is_left_alone():
     assert connections._mask("abc abcd xabc ab-abc", ["abc"], 100) == (
         "[redacted] abcd xabc ab-[redacted]")
+
+
+def test_a_short_secret_at_the_start_of_a_key_piece_does_not_cut_the_piece_short():
+    key = SECRETS["openrouter key"][1]
+    assert connections._mask("x sk-or-v1 y", ["sk", key], 100) == "x [redacted] y"
 
 
 def test_a_short_url_password_is_masked_as_a_whole_token(monkeypatch, capsys):

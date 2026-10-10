@@ -204,14 +204,14 @@ def _whole_token(form: str) -> str:
 def _secret_pattern(forms: tuple[str, ...]) -> re.Pattern[str]:
     """One regex finding, at every position, a short secret as a whole token or any
     8-character piece of a long one (any longer piece is a chain of these)."""
-    pieces = set()
+    pieces = {}  # regex -> length of the text it matches; longest is tried first
     for form in forms:
         if len(form) < _MIN_KEY_RUN:
-            pieces.add(_whole_token(form))
+            pieces[_whole_token(form)] = len(form)
         else:
-            pieces |= {re.escape(form[j:j + _MIN_KEY_RUN])
+            pieces |= {re.escape(form[j:j + _MIN_KEY_RUN]): _MIN_KEY_RUN
                        for j in range(len(form) - _MIN_KEY_RUN + 1)}
-    return re.compile("(?=(" + "|".join(sorted(pieces, key=len, reverse=True)) + "))")
+    return re.compile("(?=(" + "|".join(sorted(pieces, key=pieces.get, reverse=True)) + "))")
 
 
 def _mask(text: Any, secrets: Iterable[Any], limit: int = MAX_ERROR_CHARS) -> str:
@@ -285,18 +285,19 @@ def _read_limited(path: Path) -> bytes:
 
 
 def _read_dotenv(path: Path) -> dict[str, str]:
-    """``KEY=VALUE`` lines with optional ``export``, quotes and `` # comment``.
-
-    Tolerant on purpose: ``.env`` is often shared with other tools, so a line
-    this parser does not understand is skipped, and a missing, unreadable or
-    odd ``.env`` (a directory, a FIFO, too large) is ignored, never an error.
-    """
+    """``KEY=VALUE`` lines with optional ``export``, quotes and `` # comment``; other lines are
+    skipped (``.env`` is often shared with other tools). A missing ``.env`` is ``{}``; any
+    other read failure is a ``ConnectionConfigError`` naming the path, never the contents."""
     try:
-        data = _read_limited(path)
-    except (OSError, ValueError):
-        data = b""
+        text = _read_limited(path).decode("utf-8")
+    # governance: allow-silent SF002: a missing .env means no .env settings; every other read error is reported.
+    except (FileNotFoundError, NotADirectoryError):
+        return {}
+    except (OSError, ValueError) as exc:  # unreadable, a directory, a FIFO, too large, not UTF-8
+        raise ConnectionConfigError(f"cannot read {_sanitize(str(path))}: "
+                                    f"{getattr(exc, 'strerror', None) or type(exc).__name__}") from None
     values = {}
-    for line in data.decode("utf-8", errors="replace").splitlines():
+    for line in text.splitlines():
         m = _DOTENV_LINE.fullmatch(line)
         if m:
             name, double, single, bare = m.groups()
@@ -311,10 +312,11 @@ def _read_config(path: Path, required: bool) -> dict[str, Any]:
     """
     where = _sanitize(str(path))
     try:
-        if not required and not path.exists():
-            return {}
         data = tomllib.loads(_read_limited(path).decode("utf-8"))
+    # governance: allow-silent SF002: a missing optional connections file means no file settings; every other read error raises.
     except OSError as exc:
+        if not required and isinstance(exc, (FileNotFoundError, NotADirectoryError)):
+            return {}
         raise ConnectionConfigError(f"cannot read {where}: {exc.strerror or type(exc).__name__}"
                                     ) from None
     except tomllib.TOMLDecodeError as exc:
@@ -336,7 +338,11 @@ class _Sources:
         if env is not None:  # an explicit mapping is the whole configuration
             self.env, self.dotenv = env, {}
             return
-        self.env, self.dotenv = os.environ, _read_dotenv(DOTENV_PATH)
+        self.env, self.dotenv = os.environ, {}
+        try:
+            self.dotenv = _read_dotenv(DOTENV_PATH)
+        except ConnectionConfigError as exc:  # reported by require_live and `connections`
+            self.problems.append(str(exc))
         if not with_file:
             return
         named = self.value(CONNECTIONS_FILE_ENV)
