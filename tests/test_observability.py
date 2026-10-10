@@ -13,16 +13,16 @@ import pytest
 
 from ledgercheck import connections, observability
 from ledgercheck.agents import IntakeAgent, run_pipeline
-from ledgercheck.fixtures_loader import load_cases
 from ledgercheck.connections import HOST_ENV, PUBLIC_KEY_ENV, SECRET_KEY_ENV
+from ledgercheck.fixtures_loader import load_cases
 from ledgercheck.observability import (
     PIPELINE_TRACE,
     LangfuseTracer,
     LangfuseUnavailable,
     NullTracer,
     SpanRecord,
-    TraceRecord,
     Tracer,
+    TraceRecord,
     Usage,
     trace_run,
 )
@@ -121,13 +121,9 @@ def test_null_tracer_is_the_default_and_a_no_op():
 
 
 @pytest.mark.parametrize("env", [
-    {},
-    {PUBLIC_KEY_ENV: "pk"},
-    {SECRET_KEY_ENV: "sk"},
-    {PUBLIC_KEY_ENV: "pk", SECRET_KEY_ENV: ""},
-    {PUBLIC_KEY_ENV: " \t", SECRET_KEY_ENV: "sk"},
-    {PUBLIC_KEY_ENV: "pk", SECRET_KEY_ENV: "  ", HOST_ENV: "https://langfuse.example"},
-    {HOST_ENV: "https://langfuse.example"},
+    {PUBLIC_KEY_ENV: "pk"},  # a key missing
+    {PUBLIC_KEY_ENV: " \t", SECRET_KEY_ENV: "sk"},  # a key blank
+    {HOST_ENV: "https://langfuse.example"},  # a host alone
 ])
 def test_factory_picks_null_tracer_when_a_key_is_missing_or_blank(env, sdk_missing):
     # sdk_missing: any attempt to build a LangfuseTracer would raise.

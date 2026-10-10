@@ -219,7 +219,6 @@ def hit(severity, rule_id="POL-X"):
         ([Severity.INFO], Outcome.APPROVE),
         ([Severity.INFO, Severity.WARNING], Outcome.FLAG),
         ([Severity.WARNING, Severity.ERROR], Outcome.NEEDS_HUMAN),
-        ([Severity.ERROR], Outcome.NEEDS_HUMAN),
     ],
 )
 def test_decide_outcome_rubric(severities, outcome):

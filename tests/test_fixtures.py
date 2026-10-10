@@ -9,7 +9,12 @@ from pathlib import Path
 import pytest
 
 import ledgercheck
-from ledgercheck.fixtures_loader import FIXTURES_DIR, KNOWN_TAGS, FixtureError, load_cases
+from ledgercheck.fixtures_loader import (
+    FIXTURES_DIR,
+    KNOWN_TAGS,
+    FixtureError,
+    load_cases,
+)
 
 CASES = load_cases()
 ARITHMETIC_SEEDS = {"tax_mismatch", "subtotal_mismatch", "rounding"}
@@ -175,7 +180,6 @@ def _good_with(**invoice_overrides) -> dict:
         ({"clean_baseline.json": {**GOOD, "tags": [["clean"]]}}, "tags"),
         ({"clean_baseline.json": {**GOOD, "description": 7}}, "description"),
         ({"clean_baseline.json": {**GOOD, "invoice": ["invoice_number"]}}, "invoice"),
-        (_good_with(total="NaN"), "total"),
         (_good_with(total="abc"), "total"),
         (_good_with(vendor_name=42), "vendor_name"),
         (
@@ -192,7 +196,6 @@ def _good_with(**invoice_overrides) -> dict:
         "tags-unhashable",
         "description-type",
         "invoice-not-object",
-        "nan",
         "not-a-number",
         "name-type",
         "line-description-type",

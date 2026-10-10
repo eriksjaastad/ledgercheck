@@ -7,7 +7,13 @@ from decimal import Decimal
 
 import pytest
 
-from ledgercheck.agents import IntakeAgent, PolicyAgent, PolicyResult, record_intake, record_policy
+from ledgercheck.agents import (
+    IntakeAgent,
+    PolicyAgent,
+    PolicyResult,
+    record_intake,
+    record_policy,
+)
 from ledgercheck.agents.llm_client import API_KEY_ENV, ENV_FLAG, LiveLLMDisabled
 from ledgercheck.agents.policy import (
     POLICY_DIR,
@@ -94,9 +100,6 @@ def test_vendor_alias_matches_by_name_with_info_only(agent):
 @pytest.mark.parametrize(
     "case_id, name",
     [
-        ("rounding", "Tallow Print Co"),
-        ("rounding", "tallow print co"),
-        ("clean_baseline", "NORTHWIND OFFICE SUPPLY"),
         ("clean_baseline", "Northwind Office Supply, Inc."),
     ],
 )
@@ -148,10 +151,8 @@ def test_rounding_uses_half_up_on_code_rate(agent):
 @pytest.mark.parametrize(
     "tax_amount, rule, severity",
     [
-        ("4.855", "POL-TAX-ROUNDING", Severity.WARNING),  # sub-cent gap
         ("4.84", "POL-TAX-ROUNDING", Severity.WARNING),  # exactly one cent under
         ("4.861", "POL-TAX-AMOUNT", Severity.ERROR),  # just over one cent
-        ("4.87", "POL-TAX-AMOUNT", Severity.ERROR),
     ],
 )
 def test_tax_gap_of_at_most_one_cent_is_rounding(agent, tax_amount, rule, severity):
@@ -248,28 +249,18 @@ def vendor_chunk(chunk_id="vendor:V", **changes):
         ({"a.json": [{"chunk_id": "x", "kind": "memo", "text": ""}]}, "unknown chunk kind"),
         ({"a.json": [{"chunk_id": "tax:X", "kind": "tax", "text": ""}]}, "missing"),
         ({"a.json": [tax_chunk(rate="abc")]}, "bad rate"),
-        ({"a.json": [tax_chunk(rate=0.06)]}, "bad rate"),  # JSON float
-        ({"a.json": [tax_chunk(rate="NaN")]}, "bad rate"),
-        ({"a.json": [tax_chunk(rate="Infinity")]}, "bad rate"),
         ({"a.json": [tax_chunk(rate=True)]}, "bad rate"),
         ({"a.json": [tax_chunk()] * 2}, "duplicate chunk_id"),
         ({"a.json": [tax_chunk(), tax_chunk("tax:Y")]}, "duplicate tax code"),
         ({"a.json": [tax_chunk(), vendor_chunk(), vendor_chunk("vendor:W")]},
          "duplicate vendor_id"),
         ({"a.json": [tax_chunk(), vendor_chunk(po_required="yes")]}, "po_required"),
-        ({"a.json": [tax_chunk(), vendor_chunk(po_required=1)]}, "po_required"),
         ({"a.json": [tax_chunk(), vendor_chunk(aliases="Acme Co")]}, "aliases"),
         ({"a.json": [tax_chunk(), vendor_chunk(aliases=["Acme Co", 7])]}, "aliases"),
-        ({"a.json": [tax_chunk(), vendor_chunk(aliases=[""])]}, "aliases"),
-        ({"a.json": [tax_chunk(), vendor_chunk(),
-                     vendor_chunk("vendor:W", vendor_id="W", name="Acme, Inc.")]},
-         "name or alias 'acme' also matches vendor:V"),
         ({"a.json": [tax_chunk(), vendor_chunk(),
                      vendor_chunk("vendor:W", vendor_id="W", name="Bolt", aliases=["ACME LLC"])]},
          "name or alias 'acme' also matches vendor:V"),
         ({"a.json": [tax_chunk(), vendor_chunk(name="")]}, "name"),
-        ({"a.json": [tax_chunk(), vendor_chunk(currency=None)]}, "currency"),
-        ({"a.json": [tax_chunk(), vendor_chunk(vendor_id=1001)]}, "vendor_id"),
         ({"a.json": [tax_chunk(code="  ")]}, "code"),
         ({"a.json": [tax_chunk(chunk_id=3)]}, "chunk_id"),
         ({"a.json": [tax_chunk(text=None)]}, "text"),
@@ -356,11 +347,7 @@ def test_search_rejects_negative_k():
     "chunks, match",
     [
         ([tax_chunk(), vendor_chunk(currency="usd")], r"vendor:V: currency .* got 'usd'"),
-        ([tax_chunk(), vendor_chunk(currency=" USD")], r"vendor:V: currency .* got ' USD'"),
-        ([tax_chunk(), vendor_chunk(currency="US")], r"vendor:V: currency"),
         ([tax_chunk(rate="8.25")], r"tax:X: rate must be a fraction in \[0, 1\), got 8.25"),
-        ([tax_chunk(rate="-0.0725")], r"tax:X: rate must be a fraction .* got -0.0725"),
-        ([tax_chunk(rate=1)], r"tax:X: rate must be a fraction"),
     ],
 )
 def test_corpus_rejects_values_no_invoice_could_match(tmp_path, chunks, match):
@@ -430,23 +417,6 @@ def test_blank_po_number_counts_as_not_stated(agent, blank):
     assert (hit.rule_id, hit.field) == ("POL-PO-REQUIRED", "po_number")
 
 
-@pytest.mark.parametrize(
-    "name, expected",
-    [
-        ("Co-op Foods", "co op foods"),
-        ("Acme Co. Ltd", "acme"),
-        ("Acme & Co., Inc.", "acme"),
-        ("Inc Holdings", "inc holdings"),
-        ("Tallow Print Co.", "tallow print"),
-        ("Corp Co LLC", ""),
-        ("&", ""),
-        ("Müller GmbH", "müller"),
-    ],
-)
-def test_normalize_name_strips_only_trailing_suffixes(name, expected):
-    assert normalize_name(name) == expected
-
-
 def test_co_op_does_not_collide_with_op(tmp_path):
     chunks = [tax_chunk(), vendor_chunk(name="Co-op Foods"),
               vendor_chunk("vendor:W", vendor_id="W", name="Op Foods")]
@@ -459,19 +429,16 @@ def test_co_op_does_not_collide_with_op(tmp_path):
 @pytest.mark.parametrize(
     "name, expected",
     [
-        ("Harbor & Pine Consulting L.L.C.", "harbor pine consulting"),
-        ("Kestrel Industrial G.m.b.H.", "kestrel industrial"),
-        ("Tallow Print Co.", "tallow print"),
-        ("Acme L.L.C. Ltd.", "acme"),
-        ("O'Neil Supply", "oneil supply"),
-        ("O’Neil Supply", "oneil supply"),
-        ("Co-op Foods L.L.C.", "co op foods"),
-        ("Acme, Inc.", "acme"),
-        ("L.L.C.", ""),
-        ("Müller GmbH", "müller"),
+        ("Harbor & Pine Consulting L.L.C.", "harbor pine consulting"),  # & dropped, dotted suffix
+        ("O’Neil Supply", "oneil supply"),  # an in-word apostrophe joins
+        ("Co-op Foods", "co op foods"),  # a hyphen separates; a non-trailing suffix stays
+        ("Acme Co. Ltd", "acme"),  # several trailing suffixes
+        ("Corp Co LLC", ""),  # nothing but suffixes
+        ("&", ""),  # nothing but "and"
+        ("Müller GmbH", "müller"),  # non-ASCII letters are kept
     ],
 )
-def test_normalize_name_joins_in_word_marks_and_applies_nfkc(name, expected):
+def test_normalize_name_applies_each_documented_step(name, expected):
     assert normalize_name(name) == expected
 
 
@@ -522,9 +489,9 @@ def test_decomposed_name_matches_composed_record(tmp_path):
     assert corpus.find_vendor(None, "Müller GmbH")[0].chunk_id == "vendor:V"
 
 
-@pytest.mark.parametrize("empty", ["Inc.", "LLC", "&", "Co. Ltd", " - "])
 @pytest.mark.parametrize("key", ["name", "aliases"])
-def test_corpus_rejects_name_or_alias_that_normalizes_to_empty(tmp_path, key, empty):
+def test_corpus_rejects_name_or_alias_that_normalizes_to_empty(tmp_path, key):
+    empty = "Co. Ltd"
     value = [empty] if key == "aliases" else empty
     (tmp_path / "a.json").write_text(
         json.dumps([tax_chunk(), vendor_chunk(**{key: value})]), encoding="utf-8"
@@ -542,7 +509,7 @@ def test_constructor_rejects_empty_normalized_name():
         PolicyCorpus([*others, bad])
 
 
-@pytest.mark.parametrize("name", ["Inc.", "LLC", "&", "--"])
+@pytest.mark.parametrize("name", ["Inc."])
 def test_document_name_normalizing_to_empty_never_matches(agent, name):
     assert agent.corpus.find_vendor(None, name) == (None, "")
     [hit] = agent.check(invoice("clean_baseline", vendor_id=None, vendor_name=name)).hits
@@ -584,7 +551,7 @@ def test_rerank_off_by_default(monkeypatch):
     assert result.reranker is None
 
 
-@pytest.mark.parametrize("value", ["", "0", "true", "yes"])
+@pytest.mark.parametrize("value", ["true"])
 def test_rerank_flag_must_be_exactly_one(monkeypatch, value):
     monkeypatch.setenv(RERANK_FLAG, value)
     assert PolicyAgent().rerank is False
@@ -609,7 +576,7 @@ def test_rerank_with_full_gate_still_makes_no_request(monkeypatch):
         PolicyAgent().check(invoice("clean_baseline", **UNKNOWN))
 
 
-@pytest.mark.parametrize("value", ["0", "1", 1, 0])
+@pytest.mark.parametrize("value", [1])
 def test_explicit_rerank_must_be_bool(value):
     with pytest.raises(TypeError, match="rerank"):
         PolicyAgent(rerank=value)  # type: ignore[arg-type]

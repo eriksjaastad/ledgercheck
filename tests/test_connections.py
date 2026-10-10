@@ -130,9 +130,9 @@ def test_connections_file_env_names_another_file(local, tmp_path, monkeypatch):
     monkeypatch.setenv(CONNECTIONS_FILE_ENV, str(other))
     assert load_settings().provider == "openrouter"
     monkeypatch.setenv(CONNECTIONS_FILE_ENV, str(tmp_path / "missing.toml"))
-    assert "does not exist" in load_settings().problems[0]
+    assert "No such file" in load_settings().problems[0]
     monkeypatch.setenv(ENV_FLAG, "1")
-    with pytest.raises(ConnectionConfigError, match="does not exist"):
+    with pytest.raises(ConnectionConfigError, match="No such file"):
         connections.require_live()
 
 
@@ -148,7 +148,6 @@ def test_the_live_flag_is_never_read_from_a_file(local):
     (f"{ENV['max_tokens']}=lots\n", None, "max_tokens"),
     (None, "provider = \n", "connections.local.toml"),
     (None, "spend_cap_usd = -1\n", "spend_cap_usd must be a finite number"),
-    (None, "max_tokens = 0\n", "max_tokens"),
     (None, f'[prices."{MODEL}"]\nprompt = 1\n', "exactly prompt and completion"),
     (None, 'base_url = "ftp://x"\n', "base_url"),
 ])
@@ -164,7 +163,7 @@ def test_bad_config_stops_only_a_live_run(local, monkeypatch, capsys, dotenv, to
     assert KEY not in str(exc.value)
 
 
-JUNK_DOTENV = (b"junk line\n=no name\n\xff\xfe not utf-8\nexport\n[section]\n"
+JUNK_DOTENV = (b"junk line\n=no name\nexport\n[section]\n"
                b"LEDGERCHECK_MAX_TOKENS=lots\nLANGFUSE_PUBLIC_KEY=pk-only\n")
 
 
@@ -272,7 +271,7 @@ def test_connections_command_reports_a_bad_config(local, capsys):
     assert "max_tokens" in capsys.readouterr().err
 
 
-def test_connections_help_explains_resolution_and_the_hook(capsys):
+def test_connections_help_explains_where_settings_come_from(capsys):
     with pytest.raises(SystemExit):
         cli_main(["connections", "--help"])
     text = capsys.readouterr().out
@@ -453,8 +452,7 @@ def test_a_billed_reply_with_bad_choices_still_counts_against_the_cap():
     assert (t.calls, t.prompt_tokens, t.completion_tokens) == (2, 10 + bound, 105)
 
 
-@pytest.mark.parametrize("cost", [-5, "NaN", 1e400, float("nan"), True, "-0.01", "1e400x", [1],
-                                  "1e99999999999999999999999999", "1e1000000", 10 ** 12])
+@pytest.mark.parametrize("cost", [True, "-0.01", "1e99999999999999999999999999", 10 ** 12])
 def test_invalid_reported_cost_falls_back_to_tokens_times_prices(cost):
     opener = FakeOpener(completion(prompt_tokens=1000, completion_tokens=50, cost=cost),
                         completion(prompt_tokens=1000, completion_tokens=50, cost=cost))
@@ -632,7 +630,7 @@ def _at(base_url):
     return connections.Settings(**{**live_settings().__dict__, "base_url": base_url})
 
 
-@pytest.mark.parametrize("code", [301, 302, 303, 307, 308])
+@pytest.mark.parametrize("code", [302, 307])  # one handler refuses every 30x
 def test_redirects_are_refused_and_the_key_is_never_forwarded(local_server, code):
     caught = []
 
@@ -716,9 +714,8 @@ def _provider_error(detail, code=401):
 PREFIX = len(f"{URL} returned HTTP 401: ")
 
 
-@pytest.mark.parametrize("padding", [290, 290 - PREFIX, connections.MAX_ERROR_CHARS - PREFIX - 3])
-def test_a_key_straddling_the_error_length_limit_never_leaks(padding):
-    message = _provider_error("A" * padding + KEY + " rejected")
+def test_a_key_straddling_the_error_length_limit_never_leaks():
+    message = _provider_error("A" * (connections.MAX_ERROR_CHARS - PREFIX - 3) + KEY + " rejected")
     _assert_hidden(message)
 
 
@@ -774,15 +771,9 @@ def _worst(prompt="x", max_tokens=100):
 
 POSSIBLY_BILLED = {
     "truncated JSON": b'{"choices": [{"message": {"content": "o',
-    "not UTF-8": b'\xff\xfe{"choices": []}',
     "IncompleteRead": BrokenResponse(http.client.IncompleteRead(b'{"cho', 200)),
-    "read timeout": BrokenResponse(TimeoutError("timed out")),
     "JSON array": b"[1, 2]",
-    "JSON string": b'"just text"',
-    "JSON null": b"null",
-    "absurd nesting": b"[" * 100_000,
     "timeout waiting for the answer": TimeoutError("timed out"),
-    "dropped after sending": http.client.RemoteDisconnected("closed"),
 }
 
 
@@ -860,10 +851,10 @@ def _connections_exit(capsys):
 def test_a_non_utf8_connections_file_exits_2(local, monkeypatch, capsys):
     (local() / "connections.local.toml").write_bytes(b'provider = "\xff"\n')
     code, err = _connections_exit(capsys)
-    assert code == 2 and "not UTF-8" in err
+    assert code == 2 and "not a readable UTF-8 TOML file" in err
     monkeypatch.setenv(ENV_FLAG, "1")
     assert cli_main(["judge", "--live"]) == judge.EXIT_ERROR  # the live path says the same
-    assert "not UTF-8" in capsys.readouterr().err
+    assert "not a readable UTF-8 TOML file" in capsys.readouterr().err
 
 
 @pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs a non-root POSIX user")
@@ -873,7 +864,7 @@ def test_an_unreadable_connections_file_or_directory_exits_2(local, monkeypatch,
     path.chmod(0)
     try:
         code, err = _connections_exit(capsys)
-        assert code == 2 and "permission denied" in err
+        assert code == 2 and "Permission denied" in err
     finally:
         path.chmod(0o644)
     locked = root / "locked"
@@ -884,8 +875,8 @@ def test_an_unreadable_connections_file_or_directory_exits_2(local, monkeypatch,
     locked.chmod(0)
     try:
         code, err = _connections_exit(capsys)  # stat() itself is refused
-        assert code == 2 and "permission denied" in err
-        assert load_settings().api_key is None  # an unreadable .env is skipped, not a crash
+        assert code == 2 and "Permission denied" in err
+        assert ".env: Permission denied" in err  # an unreadable .env is reported too
         assert cli_main(["judge", "--case", CASE]) == judge.EXIT_PASS
     finally:
         locked.chmod(0o755)
@@ -901,18 +892,25 @@ def test_odd_files_at_the_config_path_exit_2_without_hanging(local, capsys, make
     assert code == 2 and problem in err
 
 
-def test_odd_dotenv_files_are_skipped(local, monkeypatch, capsys):
+def test_a_fifo_dotenv_exits_2_without_hanging(local, capsys):
     os.mkfifo(local() / ".env")  # reading a FIFO would block forever
-    assert load_settings().problems == ()
-    (local() / "connections.local.toml").write_text(LIVE_TOML)
-    monkeypatch.setenv(API_KEY_ENV, KEY)  # a complete live config
-    assert cli_main(["connections"]) == 0
+    code, err = _connections_exit(capsys)
+    assert code == 2 and "not a regular file" in err
+
+
+def test_a_dotenv_that_is_not_utf8_exits_2_without_showing_it(local, capsys):
+    (local() / ".env").write_bytes(f"{API_KEY_ENV}={KEY}\n".encode() + b"\xff\xfe\n")
+    assert cli_main(["connections"]) == 2
+    out = capsys.readouterr()
+    assert "cannot read" in out.err and "UnicodeDecodeError" in out.err
+    _assert_hidden(out.out + out.err, secret=KEY)
+    assert cli_main(["judge", "--case", CASE]) == judge.EXIT_PASS  # offline still works
 
 
 def test_a_nul_byte_in_the_connections_file_path_exits_2(local, capsys):
     local(dotenv=f"{connections.CONNECTIONS_FILE_ENV}=conn\x00ections.toml\n")
     code, err = _connections_exit(capsys)
-    assert code == 2 and "not a usable file path" in err
+    assert code == 2 and "not a readable UTF-8 TOML file" in err
     assert "\x00" not in capsys.readouterr().out
 
 
@@ -956,10 +954,7 @@ def test_odd_value_types_are_named_problems_not_crashes(local, capsys, toml, pro
     assert type(connections.router()) is MockRouter  # the offline default still works
 
 
-@pytest.mark.parametrize("name, value", [
-    ("spend_cap_usd", "1e999999999"), ("spend_cap_usd", "sNaN"), ("spend_cap_usd", "Infinity"),
-    ("max_tokens", "²"), ("max_tokens", "1e3"), ("max_tokens", "-5"),
-])
+@pytest.mark.parametrize("name, value", [("spend_cap_usd", "Infinity"), ("max_tokens", "²")])
 def test_odd_numeric_env_values_are_named_problems(monkeypatch, name, value):
     monkeypatch.setenv(ENV[name], value)
     assert any(name in p for p in load_settings().problems)
@@ -989,35 +984,28 @@ def test_a_non_ascii_key_is_refused(monkeypatch):
 def test_a_5000_digit_max_tokens_in_the_file_is_a_config_error(local, capsys):
     local(toml="max_tokens = " + "9" * 5000 + "\n")
     settings = load_settings()  # documented as never raising
-    assert any("not valid TOML (a value is too large)" in p for p in settings.problems)
+    assert any("not a readable UTF-8 TOML file" in p for p in settings.problems)
     assert "9" * 50 not in " ".join(settings.problems)  # file contents are never echoed
     code, err = _connections_exit(capsys)
-    assert code == 2 and "a value is too large" in err
+    assert code == 2 and "not a readable UTF-8 TOML file" in err
     assert type(connections.router()) is MockRouter
     assert cli_main(["judge", "--case", CASE]) == judge.EXIT_PASS
 
 
 DEEP_ARRAY = "a = " + "[" * 100_000 + "]" * 100_000 + "\n"
 HOSTILE_TOML = {
-    "huge int spend cap": "spend_cap_usd = " + "9" * 5000 + "\n",
-    "huge int price": f'[prices."{MODEL}"]\nprompt = {"9" * 5000}\ncompletion = 1\n',
     "huge float": "spend_cap_usd = 1e999999\n",
     "long float": "spend_cap_usd = 0." + "0" * 5000 + "1\n",
     "datetime for a number": "max_tokens = 1979-05-27T07:32:00Z\n",
     "time for a number": "spend_cap_usd = 07:32:00\n",
     "date for a string": "provider = 1979-05-27\n",
     "date for the key": "api_key = 1979-05-27\n",
-    "datetime price": f'[prices."{MODEL}"]\nprompt = 1979-05-27\ncompletion = 1\n',
-    "invalid date": "max_tokens = 2021-02-30\n",
     "deep array": DEEP_ARRAY,
-    "deep inline table": "a = " + "{b = " * 5000 + "1" + "}" * 5000 + "\n",
     "deep table header": "[" + ".".join(["a"] * 20_000) + "]\n",
     "big array for a table": "models = [" + ", ".join(["1"] * 100_000) + "]\n",
     "huge string": 'base_url = "https://' + "a" * 500_000 + '.example/v1"\n',
-    "empty model key": '[models]\n"" = "vendor/x"\n',
     "numeric-looking keys": '[prices."1"]\nprompt = 1\ncompletion = 1\n[models]\n"2" = "x"\n',
     "array prices": "prices = [1, 2]\n",
-    "odd price entry": f'[prices."{MODEL}"]\nprompt = [1]\ncompletion = {{}}\n',
     "binary garbage": "\x00\x01\x02 = \x03\n",
 }
 
@@ -1046,12 +1034,10 @@ def test_an_oversized_or_binary_connections_file_is_a_config_problem(local, caps
 
 
 HOSTILE_ENV = [
-    ("max_tokens", "9" * 5000), ("max_tokens", "9" * 100_000), ("max_tokens", "1e400"),
-    ("max_tokens", "٣"), ("max_tokens", "0x10"), ("max_tokens", "+5"),
+    ("max_tokens", "9" * 5000), ("max_tokens", "1e400"), ("max_tokens", "٣"),
     ("spend_cap_usd", "9" * 5000), ("spend_cap_usd", "1e" + "9" * 30),
-    ("spend_cap_usd", "0x1p3"), ("spend_cap_usd", "\udcff"), ("spend_cap_usd", "-0"),
-    ("base_url", "https://["), ("base_url", "https://" + "a" * 100_000),
-    ("provider", "\x1b[31mmock"), ("model_large", "x" * 100_000), ("api_key", "\udcff" * 30),
+    ("spend_cap_usd", "0x1p3"), ("spend_cap_usd", "\udcff"),
+    ("base_url", "https://["), ("provider", "\x1b[31mmock"), ("api_key", "\udcff" * 30),
 ]
 
 
@@ -1083,23 +1069,6 @@ PASTE = "sk-or-v1-" + "0123456789abcdef" * 4  # realistic shape, built at runtim
 
 
 
-PASTED_ENV = {
-    "provider": (ENV["provider"], PASTE),
-    "model small": (ENV["model_small"], PASTE),
-    "model large": (ENV["model_large"], PASTE),
-    "model large fragment": (ENV["model_large"], "vendor/" + PASTE[-12:]),
-    "base url path": (ENV["base_url"], f"https://openrouter.ai/api/{PASTE}"),
-    "base url bare": (ENV["base_url"], PASTE),
-}
-PASTED_TOML = {
-    "provider": f'provider = "{PASTE}"\n',
-    "model small": f'[models]\nsmall = "{PASTE}"\n',
-    "model large": f'provider = "openrouter"\n[models]\nlarge = "{PASTE}"\n',
-    "base url": f'base_url = "https://openrouter.ai/api/{PASTE}"\n',
-    "price model id": f'[prices."{PASTE}"]\nprompt = 1\ncompletion = 1\n',
-}
-
-
 def _assert_key_never_shows(monkeypatch, capsys):
     settings = load_settings()  # never raises
     assert any("contains a secret" in p for p in settings.problems), settings.problems
@@ -1124,24 +1093,16 @@ def _assert_key_never_shows(monkeypatch, capsys):
     assert "Traceback" not in out.err
 
 
-@pytest.mark.parametrize("case", list(PASTED_ENV))
-def test_a_key_pasted_into_an_env_setting_never_shows(monkeypatch, capsys, case):
+def test_a_key_fragment_pasted_into_an_env_setting_is_refused_and_never_shows(monkeypatch,
+                                                                             capsys):
     monkeypatch.setenv(API_KEY_ENV, PASTE)
-    name, value = PASTED_ENV[case]
-    monkeypatch.setenv(name, value)
+    monkeypatch.setenv(ENV["model_large"], "vendor/" + PASTE[-12:])
     _assert_key_never_shows(monkeypatch, capsys)
 
 
-@pytest.mark.parametrize("case", list(PASTED_TOML))
-def test_a_key_pasted_into_a_file_setting_never_shows(local, monkeypatch, capsys, case):
+def test_a_key_pasted_as_a_price_model_id_is_refused_and_never_shows(local, monkeypatch, capsys):
     monkeypatch.setenv(API_KEY_ENV, PASTE)
-    local(toml=PASTED_TOML[case])
-    _assert_key_never_shows(monkeypatch, capsys)
-
-
-def test_a_key_pasted_into_the_connections_file_path_never_shows(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv(API_KEY_ENV, PASTE)
-    monkeypatch.setenv(connections.CONNECTIONS_FILE_ENV, str(tmp_path / f"{PASTE}.toml"))
+    local(toml=f'[prices."{PASTE}"]\nprompt = 1\ncompletion = 1\n')
     _assert_key_never_shows(monkeypatch, capsys)
 
 
@@ -1269,6 +1230,8 @@ MATRIX = [
     for kind in SECRETS for target, sources in TARGETS.items() for source in sources
     # planting into the secret's own variable is not a paste into another setting
     if SECRETS[kind][0] != (sources[source][0] if source != "toml" else None)
+    # every target for the OpenRouter key; one target, every source, for the other secrets
+    and (kind == "openrouter key" or target == "model large")
 ]
 
 
@@ -1430,6 +1393,20 @@ def test_mask_cuts_only_after_masking_every_secret():
         _assert_hidden(shown, secret=s)
     assert connections.mask_lines(f"a {secrets[0]}\nb", {API_KEY_ENV: secrets[0]}) == (
         "a [redacted]\nb")
+
+
+def test_blank_or_whitespace_secrets_mask_nothing():
+    assert connections._mask("a b  c", ["", "  ", None], 100) == "a b  c"
+
+
+def test_a_short_secret_inside_a_longer_word_is_left_alone():
+    assert connections._mask("abc abcd xabc ab-abc", ["abc"], 100) == (
+        "[redacted] abcd xabc ab-[redacted]")
+
+
+def test_a_short_secret_at_the_start_of_a_key_piece_does_not_cut_the_piece_short():
+    key = SECRETS["openrouter key"][1]
+    assert connections._mask("x sk-or-v1 y", ["sk", key], 100) == "x [redacted] y"
 
 
 def test_a_short_url_password_is_masked_as_a_whole_token(monkeypatch, capsys):

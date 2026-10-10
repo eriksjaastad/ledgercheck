@@ -102,10 +102,16 @@ import urllib.request
 from dataclasses import dataclass, field, fields
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
+from itertools import groupby
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
-from ledgercheck.observability import LangfuseTracer, LangfuseUnavailable, NullTracer, Tracer
+from ledgercheck.observability import (
+    LangfuseTracer,
+    LangfuseUnavailable,
+    NullTracer,
+    Tracer,
+)
 from ledgercheck.run_store import DEFAULT_ROOT, RunStore
 
 ENV_FLAG = "LEDGERCHECK_LLM"
@@ -187,36 +193,32 @@ def _forms(secrets: Iterable[Any]) -> list[str]:
     return sorted((f for f in forms if f.strip()), key=len, reverse=True)
 
 
-def _token_at(text: str, i: int, form: str) -> bool:
-    """``form`` starts at ``text[i]`` and is not part of a longer alphanumeric word."""
-    end = i + len(form)
-    return (text.startswith(form, i)
-            and (i == 0 or not (text[i - 1].isalnum() and form[0].isalnum()))
-            and (end == len(text) or not (text[end].isalnum() and form[-1].isalnum())))
+def _whole_token(form: str) -> str:
+    """A regex for ``form`` only where it is not part of a longer alphanumeric word."""
+    left = r"(?<![^\W_])" if form[0].isalnum() else ""
+    right = r"(?![^\W_])" if form[-1].isalnum() else ""
+    return left + re.escape(form) + right
 
 
-def _run_at(text: str, i: int, forms: list[str]) -> int:
-    """Length of the secret piece starting at ``text[i]``: a short secret standing as a
-    whole token, or the longest 8+ character run of a long one; 0 if none."""
-    best = 0
+@lru_cache(maxsize=32)
+def _secret_pattern(forms: tuple[str, ...]) -> re.Pattern[str]:
+    """One regex finding, at every position, a short secret as a whole token or any
+    8-character piece of a long one (any longer piece is a chain of these)."""
+    pieces = {}  # regex -> length of the text it matches; longest is tried first
     for form in forms:
         if len(form) < _MIN_KEY_RUN:
-            if _token_at(text, i, form):
-                best = max(best, len(form))
-            continue
-        n = 0
-        while n < len(form) and i + n < len(text) and text[i:i + n + 1] in form:
-            n += 1
-        if n >= _MIN_KEY_RUN:
-            best = max(best, n)
-    return best
+            pieces[_whole_token(form)] = len(form)
+        else:
+            pieces |= {re.escape(form[j:j + _MIN_KEY_RUN]): _MIN_KEY_RUN
+                       for j in range(len(form) - _MIN_KEY_RUN + 1)}
+    return re.compile("(?=(" + "|".join(sorted(pieces, key=pieces.get, reverse=True)) + "))")
 
 
 def _mask(text: Any, secrets: Iterable[Any], limit: int = MAX_ERROR_CHARS) -> str:
     """THE masking choke point: every string shown to a person or raised in an error
-    passes through here. Control characters become spaces; every secret, and every run of
-    8+ consecutive characters of one, becomes ``[redacted]``; only then is the result cut
-    to ``limit`` characters, so a cut can never leave a piece of a secret behind."""
+    passes through here. Control characters become spaces; every stretch of text made of
+    secret pieces becomes ``[redacted]``; only then is the result cut to ``limit``
+    characters, so a cut can never leave a piece of a secret behind."""
     forms = _forms(secrets)
     text = str(text)
     longest = max(map(len, forms), default=0)
@@ -224,12 +226,12 @@ def _mask(text: Any, secrets: Iterable[Any], limit: int = MAX_ERROR_CHARS) -> st
     if cut:  # nothing past here can reach the first `limit` characters of the output
         text = text[:limit + longest]
     text = _sanitize(text)
-    out, i = [], 0
-    while i < len(text):
-        n = _run_at(text, i, forms) if forms else 0
-        out.append("[redacted]" if n else text[i])
-        i += n or 1
-    text = "".join(out)
+    if forms:
+        hidden = bytearray(len(text))
+        for m in _secret_pattern(tuple(forms)).finditer(text):
+            hidden[m.start():m.start() + len(m.group(1))] = b"\x01" * len(m.group(1))
+        text = "".join("[redacted]" if is_hidden else "".join(c for c, _ in run)
+                       for is_hidden, run in groupby(zip(text, hidden), key=lambda p: p[1]))
     return text[:limit] + "..." if cut or len(text) > limit else text
 
 
@@ -283,18 +285,19 @@ def _read_limited(path: Path) -> bytes:
 
 
 def _read_dotenv(path: Path) -> dict[str, str]:
-    """``KEY=VALUE`` lines with optional ``export``, quotes and `` # comment``.
-
-    Tolerant on purpose: ``.env`` is often shared with other tools, so a line
-    this parser does not understand is skipped, and a missing, unreadable or
-    odd ``.env`` (a directory, a FIFO, too large) is ignored, never an error.
-    """
+    """``KEY=VALUE`` lines with optional ``export``, quotes and `` # comment``; other lines are
+    skipped (``.env`` is often shared with other tools). A missing ``.env`` is ``{}``; any
+    other read failure is a ``ConnectionConfigError`` naming the path, never the contents."""
     try:
-        data = _read_limited(path)
-    except (OSError, ValueError):
-        data = b""
+        text = _read_limited(path).decode("utf-8")
+    # governance: allow-silent SF002: a missing .env means no .env settings; every other read error is reported.
+    except (FileNotFoundError, NotADirectoryError):
+        return {}
+    except (OSError, ValueError) as exc:  # unreadable, a directory, a FIFO, too large, not UTF-8
+        raise ConnectionConfigError(f"cannot read {_sanitize(str(path))}: "
+                                    f"{getattr(exc, 'strerror', None) or type(exc).__name__}") from None
     values = {}
-    for line in data.decode("utf-8", errors="replace").splitlines():
+    for line in text.splitlines():
         m = _DOTENV_LINE.fullmatch(line)
         if m:
             name, double, single, bare = m.groups()
@@ -303,40 +306,26 @@ def _read_dotenv(path: Path) -> dict[str, str]:
 
 
 def _read_config(path: Path, required: bool) -> dict[str, Any]:
-    """The connections file as a dict (``{}`` when absent and not ``required``).
+    """The connections file's settings, or a ``ConnectionConfigError`` saying why it is unusable.
 
-    Every read or parse failure is a ``ConnectionConfigError`` naming the path
-    and the problem, never the file's contents.
+    An absent default file is ``{}``. Messages name the path, never the file's contents.
     """
-    raw, problem = None, None
+    where = _sanitize(str(path))
     try:
-        raw = _read_limited(path)
-    except (FileNotFoundError, NotADirectoryError):
-        if required:
-            problem = f"{CONNECTIONS_FILE_ENV} names {path}, which does not exist"
-    except PermissionError:
-        problem = f"cannot read {path}: permission denied"
-    except ValueError:  # a NUL byte in the path
-        problem = f"{CONNECTIONS_FILE_ENV} is not a usable file path"
+        data = tomllib.loads(_read_limited(path).decode("utf-8"))
+    # governance: allow-silent SF002: a missing optional connections file means no file settings; every other read error raises.
     except OSError as exc:
-        problem = f"cannot read {path}: {exc.strerror or type(exc).__name__}"
-    if problem is not None:
-        raise ConnectionConfigError(problem)
-    if raw is None:
-        return {}
-    try:
-        data = tomllib.loads(raw.decode("utf-8"))
-    except UnicodeDecodeError:
-        raise ConnectionConfigError(f"cannot read {path}: not UTF-8") from None
+        if not required and isinstance(exc, (FileNotFoundError, NotADirectoryError)):
+            return {}
+        raise ConnectionConfigError(f"cannot read {where}: {exc.strerror or type(exc).__name__}"
+                                    ) from None
     except tomllib.TOMLDecodeError as exc:
-        raise ConnectionConfigError(f"{path}: {exc}") from None
-    except RecursionError:
-        raise ConnectionConfigError(f"{path}: nested too deeply") from None
-    except (ValueError, OverflowError):  # e.g. an integer over Python's 4300-digit limit
-        raise ConnectionConfigError(f"{path}: not valid TOML (a value is too large)") from None
+        raise ConnectionConfigError(f"{where}: {exc}") from None
+    except (ValueError, RecursionError):  # bad UTF-8, a NUL in the path, huge integers, deep nesting
+        raise ConnectionConfigError(f"{where} is not a readable UTF-8 TOML file") from None
     unknown = set(data) - _FILE_KEYS
     if unknown:
-        raise ConnectionConfigError(f"{path}: unknown keys {sorted(unknown)}; "
+        raise ConnectionConfigError(f"{where}: unknown keys {sorted(unknown)}; "
                                     f"allowed: {sorted(_FILE_KEYS)}")
     return data
 
@@ -349,7 +338,11 @@ class _Sources:
         if env is not None:  # an explicit mapping is the whole configuration
             self.env, self.dotenv = env, {}
             return
-        self.env, self.dotenv = os.environ, _read_dotenv(DOTENV_PATH)
+        self.env, self.dotenv = os.environ, {}
+        try:
+            self.dotenv = _read_dotenv(DOTENV_PATH)
+        except ConnectionConfigError as exc:  # reported by require_live and `connections`
+            self.problems.append(str(exc))
         if not with_file:
             return
         named = self.value(CONNECTIONS_FILE_ENV)
@@ -478,7 +471,7 @@ def _provider(raw: Any) -> str:
     return raw.strip().lower() or "mock"
 
 
-def _live_gaps(provider: str, key: str | None, cap: Decimal | None, cap_raw: Any,
+def _live_gaps(provider: str, key: str | None, cap_given: bool,
                models: Mapping[str, str], prices: Mapping[str, Any]) -> list[str]:
     """What a live run with ``provider`` still needs; checked up front, not only at use."""
     if provider != "openrouter":
@@ -486,7 +479,7 @@ def _live_gaps(provider: str, key: str | None, cap: Decimal | None, cap_raw: Any
     gaps = []
     if key is None:
         gaps.append(f"an API key: {_WHERE_KEY}")
-    if cap is None and cap_raw is None:
+    if not cap_given:
         gaps.append("a spend cap: set LEDGERCHECK_SPEND_CAP_USD or spend_cap_usd")
     if "large" not in models:
         gaps.append("a large model id (the judge uses it): set LEDGERCHECK_MODEL_LARGE or "
@@ -616,7 +609,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
                  "part of one); it was probably pasted into the wrong setting"
                  for name, value in pasted
                  if isinstance(value, str) and any(_holds_secret(value, x) for x in strong)]
-    gaps = _live_gaps(provider, key, cap, raw["spend_cap_usd"],
+    gaps = _live_gaps(provider, key, raw["spend_cap_usd"] is not None,
                       {tier: model for tier, model in models.items() if model}, prices)
     return Settings(
         provider=provider,
