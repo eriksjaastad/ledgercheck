@@ -141,6 +141,7 @@ def make_server(
     store: RunStore, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, tracer: Tracer | None = None
 ) -> LedgerServer:
     """A bound, not yet serving, server; a non-loopback ``host`` raises ``ValueError``."""
+    connections.mask_output()  # its request and error logs go to stderr
     return LedgerServer((host, port), store, connections.tracer() if tracer is None else tracer)
 
 
@@ -380,9 +381,9 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    connections.mask_output()
     return run(build_parser().parse_args(argv))
 
 
 if __name__ == "__main__":
-    connections.mask_output()
     sys.exit(main())

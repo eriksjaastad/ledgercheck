@@ -491,7 +491,7 @@ def _masked(value: Any, show: Callable[[Any], str]) -> Any:
 
 def run(args: argparse.Namespace) -> int:
     """Run the suite for parsed ``args`` and return the exit code."""
-    show = connections.masker()  # for the JSON report; printing is masked by mask_output
+    connections.mask_output()  # also for Python callers; the JSON report is masked below
     live = None
     try:
         cases = select_cases(args.case)
@@ -506,7 +506,7 @@ def run(args: argparse.Namespace) -> int:
     if live is not None and live.totals is not None:
         print(f"live run ({live.model}): {live.totals.line()}")
     if args.json is not None:
-        document = _masked(report.to_json(), show)  # notes can quote the model's reply
+        document = _masked(report.to_json(), connections.masker())  # notes can quote a reply
         try:
             args.json.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
         except OSError as exc:
@@ -516,9 +516,9 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    connections.mask_output()
     return run(build_parser().parse_args(argv))
 
 
 if __name__ == "__main__":
-    connections.mask_output()
     sys.exit(main())

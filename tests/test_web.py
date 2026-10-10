@@ -1,6 +1,7 @@
 """Local web UI: a real server on 127.0.0.1 port 0, driven with urllib (offline)."""
 
 import argparse
+import contextlib
 import inspect
 import re
 import threading
@@ -19,8 +20,8 @@ from ledgercheck.run_store import RunStatus, RunStore
 OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
-@pytest.fixture
-def served(tmp_path):
+@contextlib.contextmanager
+def serving(tmp_path):
     store = RunStore(tmp_path / "runs")
     server = web.make_server(store, "127.0.0.1", 0, tracer=NullTracer())
     thread = threading.Thread(target=server.serve_forever, args=(0.05,), daemon=True)
@@ -29,6 +30,12 @@ def served(tmp_path):
     server.shutdown()
     server.server_close()
     thread.join(timeout=10)
+
+
+@pytest.fixture
+def served(tmp_path):
+    with serving(tmp_path) as base_and_store:
+        yield base_and_store
 
 
 def request(url, form=None, *, data=None):
@@ -139,6 +146,22 @@ def test_failed_resume_keeps_correction_and_another_recovers(served, monkeypatch
     assert status == 200 and "approve" in page
     assert store.get_run(run_id).status is RunStatus.COMPLETED
     assert "the run stays ``running`` at its next stage" in web.__doc__
+
+
+def test_failed_resume_log_masks_a_key(tmp_path, monkeypatch, capsys):
+    fake = "sk-or-v1-" + "f" * 32
+    monkeypatch.setenv("OPENROUTER_API_KEY", fake)
+
+    def broken(*args, **kwargs):
+        raise RuntimeError(f"auth failed with {fake}")
+
+    monkeypatch.setattr(web, "resume_run", broken)
+    with serving(tmp_path) as (base, _):  # make_server alone, no CLI around it
+        url = request(base + "/runs", {"case_id": "tax_mismatch"})[1]
+        form = {"field": "tax_amount", "value": "435.90", "corrected_by": "reviewer"}
+        assert request(f"{url}/corrections", form)[0] == 500
+    err = capsys.readouterr().err
+    assert "resume of" in err and fake[9:15] not in err
 
 
 def test_bad_run_requests_are_4xx(served):

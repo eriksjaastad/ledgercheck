@@ -998,34 +998,37 @@ def _file_state(path: Path) -> str:
 
 
 def masker(env: Mapping[str, str] | None = None) -> Callable[[Any], str]:
-    """A function that makes text safe to show: control characters removed, and every
-    secret of the configuration (see ``_secrets``) masked."""
+    """A function that removes control characters and masks every secret (see ``_secrets``)."""
     secrets = _secrets(_Sources(env))
     return lambda text: _mask(text, secrets, sys.maxsize)
 
 
 class _MaskedStream:
-    """A text stream that writes through to ``stream`` with every secret masked, line by line."""
+    """A text stream that writes through to ``unmasked`` with every secret masked, line by line."""
 
-    def __init__(self, stream: Any, show: Callable[[Any], str]) -> None:
-        self.stream, self.show = stream, show
+    def __init__(self, unmasked: Any, show: Callable[[Any], str]) -> None:
+        self.unmasked, self.show = unmasked, show
 
     def write(self, text: str) -> int:
-        self.stream.write("\n".join(map(self.show, text.split("\n"))))
+        try:
+            shown = "\n".join(map(self.show, text.split("\n")))
+        except Exception:  # never fall back to the raw text
+            shown = "ledgercheck: output withheld (masking failed)\n"
+        self.unmasked.write(shown)
         return len(text)
 
+    def writelines(self, lines: Iterable[str]) -> None:
+        self.write("".join(lines))
+
     def __getattr__(self, name: str) -> Any:
-        return getattr(self.stream, name)
+        return getattr(self.unmasked, name)
 
 
 def mask_output(env: Mapping[str, str] | None = None) -> None:
-    """Pass everything this process prints, tracebacks and server logs included, through
-    ``masker(env)``: the one output boundary every command goes through."""
-    show = masker(env)
-    for name in ("stdout", "stderr"):
-        stream = getattr(sys, name)
-        setattr(sys, name, _MaskedStream(
-            stream.stream if isinstance(stream, _MaskedStream) else stream, show))
+    """Mask every secret in all this process prints (``masker(env)``); safe to call again."""
+    show = masker(env)  # a second call rewraps the unmasked streams, never a masked one
+    sys.stdout, sys.stderr = (_MaskedStream(getattr(stream, "unmasked", stream), show)
+                              for stream in (sys.stdout, sys.stderr))
 
 
 def describe(env: Mapping[str, str] | None = None) -> list[tuple[str, str, str]]:
@@ -1083,9 +1086,9 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    mask_output()
     return run(build_parser().parse_args(argv))
 
 
 if __name__ == "__main__":
-    mask_output()
     sys.exit(main())

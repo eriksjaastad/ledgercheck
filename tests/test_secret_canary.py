@@ -12,6 +12,7 @@ import urllib.parse
 import pytest
 
 from ledgercheck import beta_notes, cli, connections, web
+from ledgercheck.eval import judge
 from ledgercheck.golden import load_golden_cases
 
 ENV_KEY = "sk-or-v1-CANARY-env-q8W3zT5mL1xR9pVb"  # OPENROUTER_API_KEY in the environment
@@ -70,12 +71,16 @@ def _serve_three_requests(server):
     raise KeyboardInterrupt
 
 
-# id: (argv, extra environment, patches, expected exit code)
+PASTED = {**LIVE, "LEDGERCHECK_MODEL_LARGE": DOTENV_KEY, "LEDGERCHECK_MODEL_SMALL": FILE_KEY,
+          "LEDGERCHECK_LLM_BASE_URL": f"https://{ENV_KEY}/v/{SHORT_PW}"}
+FAILING_SERVE = ((web.LedgerServer, "serve_forever", _serve_three_requests),
+                 (web, "resume_run", _fail))
+
+# id: (argv, extra environment, patches, expected exit code); argv runs through cli.main,
+# or through the module's own main when argv starts with it (Python callers, no CLI)
 CASES = {
     "connections ok": (["connections"], {}, (), 0),
-    "connections pasted keys": (["connections"], {
-        **LIVE, "LEDGERCHECK_MODEL_LARGE": DOTENV_KEY, "LEDGERCHECK_MODEL_SMALL": FILE_KEY,
-        "LEDGERCHECK_LLM_BASE_URL": f"https://{ENV_KEY}/v/{SHORT_PW}"}, (), 2),
+    "connections pasted keys": (["connections"], PASTED, (), 2),
     "judge ok": (["judge", "--case", CASE, "--json", "{tmp}/r.json"], {}, (), 0),
     "judge unknown case": (["judge", "--case", ENV_KEY], {}, (), 2),
     "judge live ok": (["judge", "--live", "--case", CASE, "--json", "{tmp}/r.json"], LIVE,
@@ -83,12 +88,17 @@ CASES = {
     "judge live provider error": (["judge", "--live", "--case", CASE], LIVE,
                                   ((connections, "_default_opener", _opener(DENIED)),), 2),
     "serve with a failing resume": (["serve", "--port", "0", "--runs-dir", "{tmp}/runs"], {},
-                                    ((web.LedgerServer, "serve_forever", _serve_three_requests),
-                                     (web, "resume_run", _fail)), 0),
+                                    FAILING_SERVE, 0),
     "serve refused host": (["serve", "--host", ENV_KEY, "--runs-dir", "{tmp}/runs"], {}, (), 2),
     "beta-notes ok": (["beta-notes"], {}, (), 0),
     "beta-notes bad argument": (["beta-notes", f"--key={ENV_KEY}"], {}, (), 2),
     "unexpected crash": (["beta-notes"], {}, ((beta_notes, "template", _fail),), 1),
+    "judge.main unknown case": ([judge.main, "--case", ENV_KEY], {}, (), 2),
+    "judge.main bad argument": ([judge.main, f"--key={ENV_KEY}"], {}, (), 2),
+    "web.main with a failing resume": ([web.main, "--port", "0", "--runs-dir", "{tmp}/runs"],
+                                       {}, FAILING_SERVE, 0),
+    "connections.main pasted keys": ([connections.main], PASTED, (), 2),
+    "masking fails": (["beta-notes", f"--key={ENV_KEY}"], {}, ((connections, "_mask", _fail),), 2),
 }
 
 
@@ -108,7 +118,8 @@ def test_no_secret_reaches_any_output(argv, env, patches, code, tmp_path, monkey
         monkeypatch.setattr(*patch)
     monkeypatch.setattr(sys, "excepthook", sys.excepthook)  # the interpreter's own hook
     try:
-        exit_code = cli.main([arg.format(tmp=tmp_path) for arg in argv])
+        entry, args = (argv[0], argv[1:]) if callable(argv[0]) else (cli.main, argv)
+        exit_code = entry([arg.format(tmp=tmp_path) for arg in args])
     except SystemExit as stop:  # argparse errors
         exit_code = stop.code
     except RuntimeError as crash:  # what the interpreter does with an uncaught crash
