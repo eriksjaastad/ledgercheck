@@ -463,7 +463,7 @@ def _provider(raw: Any) -> str:
     return raw.strip().lower() or "mock"
 
 
-def _live_gaps(provider: str, key: str | None, cap: Decimal | None, cap_raw: Any,
+def _live_gaps(provider: str, key: str | None, cap_given: bool,
                models: Mapping[str, str], prices: Mapping[str, Any]) -> list[str]:
     """What a live run with ``provider`` still needs; checked up front, not only at use."""
     if provider != "openrouter":
@@ -471,7 +471,7 @@ def _live_gaps(provider: str, key: str | None, cap: Decimal | None, cap_raw: Any
     gaps = []
     if key is None:
         gaps.append(f"an API key: {_WHERE_KEY}")
-    if cap is None and cap_raw is None:
+    if not cap_given:
         gaps.append("a spend cap: set LEDGERCHECK_SPEND_CAP_USD or spend_cap_usd")
     if "large" not in models:
         gaps.append("a large model id (the judge uses it): set LEDGERCHECK_MODEL_LARGE or "
@@ -601,7 +601,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
                  "part of one); it was probably pasted into the wrong setting"
                  for name, value in pasted
                  if isinstance(value, str) and any(_holds_secret(value, x) for x in strong)]
-    gaps = _live_gaps(provider, key, cap, raw["spend_cap_usd"],
+    gaps = _live_gaps(provider, key, raw["spend_cap_usd"] is not None,
                       {tier: model for tier, model in models.items() if model}, prices)
     return Settings(
         provider=provider,
