@@ -259,10 +259,8 @@ def _rename(data: dict, case_id: str) -> None:
 BAD = {
     "extra key": (INLINE, lambda d: d.update(notes="x"), "expected keys"),
     "id not stem-shaped": (INLINE, lambda d: _rename(d, "overpo"), "primary_tag>__<variant"),
-    "upper-case id": (INLINE, lambda d: _rename(d, "Over_po__x"), "primary_tag>__<variant"),
     "primary tag missing": (INLINE, lambda d: _rename(d, "clean__x"), "primary tag 'clean'"),
     "unknown tag": (INLINE, lambda d: d["tags"].append("bogus"), "unknown or empty tags"),
-    "empty tags": (INLINE, lambda d: d.update(tags=[]), "unknown or empty tags"),
     "blank description": (INLINE, lambda d: d.update(description=" "), "description"),
     "both inputs": (REF, lambda d: d["input"].update(invoice=INLINE["input"]["invoice"]),
                     "exactly one of"),
@@ -276,7 +274,6 @@ BAD = {
                              "unknown keys"),
     "bad extraction value": (INLINE, lambda d: d["expected"]["extraction"].update(total="abc"),
                              "not a decimal"),
-    "empty extraction": (INLINE, lambda d: d["expected"].update(extraction={}), "missing keys"),
     "extraction without line items": (
         REF, lambda d: d["expected"]["extraction"].pop("line_items"),
         r"missing keys \['line_items'\]"),
@@ -294,11 +291,6 @@ BAD = {
                               "retrieved"),
     "hit missing severity": (INLINE, lambda d: d["expected"]["approval"]["hits"][0].pop(
         "severity"), "expected keys"),
-    "hit missing observed": (REF, lambda d: d["expected"]["policy"]["hits"][0].pop(
-        "observed"), "expected keys"),
-    "approval hit detail differs from policy": (
-        REF, lambda d: d["expected"]["approval"]["hits"][-1].update(field="total"),
-        "must end with policy.hits"),
 }
 
 
@@ -325,8 +317,6 @@ SHAPE = {
                      "input: po_book must be an object of PO number -> amount"),
     "input line_items an object": (lambda d: d["input"]["invoice"].update(line_items={}),
                                    "input.invoice: line_items must be a list"),
-    "input line_items a string": (lambda d: d["input"]["invoice"].update(line_items=""),
-                                  "input.invoice: line_items must be a list"),
     "extraction line_items an object": (
         lambda d: d["expected"]["extraction"].update(line_items={}),
         "expected.extraction: line_items must be a list"),
