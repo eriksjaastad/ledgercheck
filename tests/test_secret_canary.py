@@ -98,6 +98,7 @@ CASES = {
     "web.main with a failing resume": ([web.main, "--port", "0", "--runs-dir", "{tmp}/runs"],
                                        {}, FAILING_SERVE, 0),
     "connections.main pasted keys": ([connections.main], PASTED, (), 2),
+    "beta_notes.main bad argument": ([beta_notes.main, f"--key={ENV_KEY}"], {}, (), 2),
     "masking fails": (["beta-notes", f"--key={ENV_KEY}"], {}, ((connections, "_mask", _fail),), 2),
 }
 
