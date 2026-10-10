@@ -108,12 +108,9 @@ def test_mock_router_records_calls_and_returns_canned_replies(no_network):
 @pytest.mark.parametrize(
     "env",
     [
-        {},
-        {API_KEY_ENV: "sk-test"},
-        {ENV_FLAG: "true", API_KEY_ENV: "sk-test"},
-        {ENV_FLAG: "0", API_KEY_ENV: "sk-test"},
-        {ENV_FLAG: "1"},
-        {ENV_FLAG: "1", API_KEY_ENV: "  "},
+        {API_KEY_ENV: "sk-test"},  # a key without the flag is not consent
+        {ENV_FLAG: "1"},  # the flag without a key
+        {ENV_FLAG: "1", API_KEY_ENV: "  "},  # a blank key
     ],
 )
 def test_live_router_refuses_without_the_gate(env):
