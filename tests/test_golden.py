@@ -158,8 +158,8 @@ def _altered_item(**changes):
     return AlteredIntake()
 
 
-@pytest.mark.parametrize("changes", [{"description": "Something else"}, {"quantity": "999"},
-                                     {"unit_price": "0.01"}, {"sku": "X-1"}])
+@pytest.mark.parametrize("changes", [{"description": "Something else"}, {"sku": "X-1"},
+                                     {"quantity": "24", "unit_price": "21.25"}])
 def test_line_item_regression_fails_the_case(changes) -> None:
     # Totals and hits are unchanged, so only the full invoice comparison catches it.
     case = BY_ID["clean__northwind_baseline"]
