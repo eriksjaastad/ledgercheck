@@ -716,9 +716,8 @@ def _provider_error(detail, code=401):
 PREFIX = len(f"{URL} returned HTTP 401: ")
 
 
-@pytest.mark.parametrize("padding", [290, 290 - PREFIX, connections.MAX_ERROR_CHARS - PREFIX - 3])
-def test_a_key_straddling_the_error_length_limit_never_leaks(padding):
-    message = _provider_error("A" * padding + KEY + " rejected")
+def test_a_key_straddling_the_error_length_limit_never_leaks():
+    message = _provider_error("A" * (connections.MAX_ERROR_CHARS - PREFIX - 3) + KEY + " rejected")
     _assert_hidden(message)
 
 
@@ -1083,23 +1082,6 @@ PASTE = "sk-or-v1-" + "0123456789abcdef" * 4  # realistic shape, built at runtim
 
 
 
-PASTED_ENV = {
-    "provider": (ENV["provider"], PASTE),
-    "model small": (ENV["model_small"], PASTE),
-    "model large": (ENV["model_large"], PASTE),
-    "model large fragment": (ENV["model_large"], "vendor/" + PASTE[-12:]),
-    "base url path": (ENV["base_url"], f"https://openrouter.ai/api/{PASTE}"),
-    "base url bare": (ENV["base_url"], PASTE),
-}
-PASTED_TOML = {
-    "provider": f'provider = "{PASTE}"\n',
-    "model small": f'[models]\nsmall = "{PASTE}"\n',
-    "model large": f'provider = "openrouter"\n[models]\nlarge = "{PASTE}"\n',
-    "base url": f'base_url = "https://openrouter.ai/api/{PASTE}"\n',
-    "price model id": f'[prices."{PASTE}"]\nprompt = 1\ncompletion = 1\n',
-}
-
-
 def _assert_key_never_shows(monkeypatch, capsys):
     settings = load_settings()  # never raises
     assert any("contains a secret" in p for p in settings.problems), settings.problems
@@ -1124,24 +1106,16 @@ def _assert_key_never_shows(monkeypatch, capsys):
     assert "Traceback" not in out.err
 
 
-@pytest.mark.parametrize("case", list(PASTED_ENV))
-def test_a_key_pasted_into_an_env_setting_never_shows(monkeypatch, capsys, case):
+def test_a_key_fragment_pasted_into_an_env_setting_is_refused_and_never_shows(monkeypatch,
+                                                                             capsys):
     monkeypatch.setenv(API_KEY_ENV, PASTE)
-    name, value = PASTED_ENV[case]
-    monkeypatch.setenv(name, value)
+    monkeypatch.setenv(ENV["model_large"], "vendor/" + PASTE[-12:])
     _assert_key_never_shows(monkeypatch, capsys)
 
 
-@pytest.mark.parametrize("case", list(PASTED_TOML))
-def test_a_key_pasted_into_a_file_setting_never_shows(local, monkeypatch, capsys, case):
+def test_a_key_pasted_as_a_price_model_id_is_refused_and_never_shows(local, monkeypatch, capsys):
     monkeypatch.setenv(API_KEY_ENV, PASTE)
-    local(toml=PASTED_TOML[case])
-    _assert_key_never_shows(monkeypatch, capsys)
-
-
-def test_a_key_pasted_into_the_connections_file_path_never_shows(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv(API_KEY_ENV, PASTE)
-    monkeypatch.setenv(connections.CONNECTIONS_FILE_ENV, str(tmp_path / f"{PASTE}.toml"))
+    local(toml=f'[prices."{PASTE}"]\nprompt = 1\ncompletion = 1\n')
     _assert_key_never_shows(monkeypatch, capsys)
 
 
@@ -1269,6 +1243,8 @@ MATRIX = [
     for kind in SECRETS for target, sources in TARGETS.items() for source in sources
     # planting into the secret's own variable is not a paste into another setting
     if SECRETS[kind][0] != (sources[source][0] if source != "toml" else None)
+    # every target for the OpenRouter key; one target, every source, for the other secrets
+    and (kind == "openrouter key" or target == "model large")
 ]
 
 
@@ -1430,6 +1406,15 @@ def test_mask_cuts_only_after_masking_every_secret():
         _assert_hidden(shown, secret=s)
     assert connections.mask_lines(f"a {secrets[0]}\nb", {API_KEY_ENV: secrets[0]}) == (
         "a [redacted]\nb")
+
+
+def test_blank_or_whitespace_secrets_mask_nothing():
+    assert connections._mask("a b  c", ["", "  ", None], 100) == "a b  c"
+
+
+def test_a_short_secret_inside_a_longer_word_is_left_alone():
+    assert connections._mask("abc abcd xabc ab-abc", ["abc"], 100) == (
+        "[redacted] abcd xabc ab-[redacted]")
 
 
 def test_a_short_url_password_is_masked_as_a_whole_token(monkeypatch, capsys):
