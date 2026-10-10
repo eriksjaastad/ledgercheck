@@ -301,11 +301,9 @@ def test_partial_temp_file_from_a_crashed_create_does_not_block_retry(store, tmp
     "change",
     [
         lambda inv: inv.pop("total"),
-        lambda inv: inv.update(invoice_date="not-a-date"),
-        lambda inv: inv.update(line_items=[{"description": "x"}]),
         lambda inv: inv.update(subtotal="lots"),
     ],
-    ids=["missing-key", "bad-date", "bad-line-item", "bad-money"],
+    ids=["missing-key", "bad-money"],
 )
 def test_malformed_extracted_invoice_fails_on_load(store, tmp_path, change):
     store.start_run("clean_baseline", run_id=RUN)

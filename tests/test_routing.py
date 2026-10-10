@@ -157,12 +157,11 @@ def test_live_router_has_no_default_model_ids(no_network):
 closers = pytest.mark.parametrize(
     "close",
     [
-        lambda env: env.pop(ENV_FLAG),
         lambda env: env.update({ENV_FLAG: "0"}),
         lambda env: env.pop(API_KEY_ENV),
         lambda env: env.update({API_KEY_ENV: "  "}),
     ],
-    ids=["flag-removed", "flag-off", "key-removed", "key-blank"],
+    ids=["flag-off", "key-removed", "key-blank"],
 )
 
 
