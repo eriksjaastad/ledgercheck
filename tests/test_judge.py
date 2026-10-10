@@ -289,7 +289,7 @@ def test_cli_fails_on_a_corrupted_case(monkeypatch, capsys) -> None:
         return doc
 
     monkeypatch.setattr(judge, "pipeline_output", produce)
-    assert judge.main([]) == judge.EXIT_FAIL
+    assert cli_main(["judge"]) == judge.EXIT_FAIL
     printed = capsys.readouterr().out
     assert "accuracy: extraction differs from golden" in printed
     assert printed.rstrip().endswith("FAIL")
@@ -301,10 +301,10 @@ def test_cli_live_flag_exits_2_without_the_gate(monkeypatch, capsys) -> None:
     assert "provider openrouter" in err and "LEDGERCHECK_LLM" in err
     for name, value in LIVE.items():
         monkeypatch.setenv(name, value)
-    assert judge.main(["--live"]) == judge.EXIT_ERROR
+    assert cli_main(["judge", "--live"]) == judge.EXIT_ERROR
     assert "LEDGERCHECK_LLM" in capsys.readouterr().err
     monkeypatch.setenv("LEDGERCHECK_LLM", "1")
-    assert judge.main(["--live"]) == judge.EXIT_ERROR
+    assert cli_main(["judge", "--live"]) == judge.EXIT_ERROR
     err = capsys.readouterr().err
     assert "OPENROUTER_API_KEY is not set" in err and ".env" in err
 
@@ -323,7 +323,7 @@ def test_cli_unknown_case_exits_2(capsys) -> None:
 
 
 def test_cli_unwritable_json_exits_2(tmp_path, capsys) -> None:
-    assert judge.main(["--json", str(tmp_path / "missing" / "r.json")]) == judge.EXIT_ERROR
+    assert cli_main(["judge", "--json", str(tmp_path / "missing" / "r.json")]) == judge.EXIT_ERROR
     assert "cannot write" in capsys.readouterr().err
 
 

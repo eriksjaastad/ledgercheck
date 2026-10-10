@@ -36,4 +36,7 @@ ledgercheck = [
 testpaths = ["tests"]
 
 [tool.ruff.lint]
-extend-select = ["I"]
+extend-select = ["I", "S112"]
+
+[tool.ruff.lint.flake8-bandit]
+check-typed-exception = true

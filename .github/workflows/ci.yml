@@ -35,6 +35,13 @@ jobs:
           python -m pip install -U pip
           pip install -e ".[dev]"
 
+      # Lint with the project's own ruff config (pyproject.toml); the version is pinned so a
+      # ruff release cannot fail CI on code that did not change.
+      - name: Lint
+        run: |
+          pip install "ruff==0.14.2"
+          ruff check --output-format=github .
+
       - name: Tests
         run: pytest -q
 

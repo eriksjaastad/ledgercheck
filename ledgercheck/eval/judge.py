@@ -515,10 +515,6 @@ def run(args: argparse.Namespace) -> int:
     return EXIT_PASS if report.passed else EXIT_FAIL
 
 
-def main(argv: list[str] | None = None) -> int:
-    connections.mask_output()
-    return run(build_parser().parse_args(argv))
-
-
 if __name__ == "__main__":
-    sys.exit(main())
+    from ledgercheck import cli
+    sys.exit(cli.main(["judge", *sys.argv[1:]]))

@@ -4,7 +4,6 @@ written report, on any command's success or error path (all offline)."""
 import http.client
 import io
 import json
-import sys
 import threading
 import urllib.error
 import urllib.parse
@@ -76,8 +75,14 @@ PASTED = {**LIVE, "LEDGERCHECK_MODEL_LARGE": DOTENV_KEY, "LEDGERCHECK_MODEL_SMAL
 FAILING_SERVE = ((web.LedgerServer, "serve_forever", _serve_three_requests),
                  (web, "resume_run", _fail))
 
+
+def _run(module):
+    """A module's Python entry point, ``module.run``, called with parsed ``args``."""
+    return lambda args: module.run(module.build_parser().parse_args(args))
+
+
 # id: (argv, extra environment, patches, expected exit code); argv runs through cli.main,
-# or through the module's own main when argv starts with it (Python callers, no CLI)
+# or through the callable it starts with (Python callers, no CLI)
 CASES = {
     "connections ok": (["connections"], {}, (), 0),
     "connections pasted keys": (["connections"], PASTED, (), 2),
@@ -92,13 +97,13 @@ CASES = {
     "serve refused host": (["serve", "--host", ENV_KEY, "--runs-dir", "{tmp}/runs"], {}, (), 2),
     "beta-notes ok": (["beta-notes"], {}, (), 0),
     "beta-notes bad argument": (["beta-notes", f"--key={ENV_KEY}"], {}, (), 2),
-    "unexpected crash": (["beta-notes"], {}, ((beta_notes, "template", _fail),), 1),
-    "judge.main unknown case": ([judge.main, "--case", ENV_KEY], {}, (), 2),
-    "judge.main bad argument": ([judge.main, f"--key={ENV_KEY}"], {}, (), 2),
-    "web.main with a failing resume": ([web.main, "--port", "0", "--runs-dir", "{tmp}/runs"],
-                                       {}, FAILING_SERVE, 0),
-    "connections.main pasted keys": ([connections.main], PASTED, (), 2),
-    "beta_notes.main bad argument": ([beta_notes.main, f"--key={ENV_KEY}"], {}, (), 2),
+    "unexpected crash": (["beta-notes"], {}, ((beta_notes, "template", _fail),), 2),
+    "judge bad argument": (["judge", f"--key={ENV_KEY}"], {}, (), 2),
+    "judge.run unknown case": ([_run(judge), "--case", ENV_KEY], {}, (), 2),
+    "web.run with a failing resume": ([_run(web), "--port", "0", "--runs-dir", "{tmp}/runs"],
+                                      {}, FAILING_SERVE, 0),
+    "connections.run pasted keys": ([_run(connections)], PASTED, (), 2),
+    "beta_notes.run ok": ([_run(beta_notes)], {}, (), 0),
     "masking fails": (["beta-notes", f"--key={ENV_KEY}"], {}, ((connections, "_mask", _fail),), 2),
 }
 
@@ -117,15 +122,11 @@ def test_no_secret_reaches_any_output(argv, env, patches, code, tmp_path, monkey
         monkeypatch.setenv(name, value)
     for patch in patches:
         monkeypatch.setattr(*patch)
-    monkeypatch.setattr(sys, "excepthook", sys.excepthook)  # the interpreter's own hook
     try:
         entry, args = (argv[0], argv[1:]) if callable(argv[0]) else (cli.main, argv)
         exit_code = entry([arg.format(tmp=tmp_path) for arg in args])
     except SystemExit as stop:  # argparse errors
         exit_code = stop.code
-    except RuntimeError as crash:  # what the interpreter does with an uncaught crash
-        sys.excepthook(type(crash), crash, crash.__traceback__)
-        exit_code = 1
     out, err = capsys.readouterr()
     report = tmp_path / "r.json"
     shown = [out, err, caplog.text, report.read_text() if report.is_file() else ""]

@@ -84,14 +84,11 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
 
 
 def run(args: argparse.Namespace) -> int:
+    connections.mask_output()  # also for Python callers
     sys.stdout.write(template())
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    connections.mask_output()
-    return run(build_parser().parse_args(argv))
-
-
 if __name__ == "__main__":
-    sys.exit(main())
+    from ledgercheck import cli
+    sys.exit(cli.main(["beta-notes", *sys.argv[1:]]))
