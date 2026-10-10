@@ -1117,7 +1117,7 @@ def test_use_time_errors_and_reprs_mask_a_pasted_key():
                                   "base_url": f"https://openrouter.ai/{PASTE}",
                                   "models": {"large": PASTE}})
     _assert_hidden(repr(odd), repr(OpenRouterTransport(odd, opener=FakeOpener())),
-                   connections.mask(f"model {PASTE}", {API_KEY_ENV: PASTE}), secret=PASTE)
+                   connections.masker({API_KEY_ENV: PASTE})(f"model {PASTE}"), secret=PASTE)
 
 
 class _PastedModelRouter:
@@ -1368,22 +1368,6 @@ def test_langfuse_client_errors_and_serve_never_show_a_secret(monkeypatch, capsy
             _assert_hidden(text, secret=s)
 
 
-def test_an_unexpected_crash_prints_a_masked_traceback(monkeypatch, capsys):
-    import sys as _sys
-
-    secret = SECRETS["openrouter key"][1]
-    monkeypatch.setenv(API_KEY_ENV, secret)
-    monkeypatch.setattr(_sys, "excepthook", _sys.excepthook)  # restored after the test
-    connections.install_masked_excepthook()
-    try:
-        raise RuntimeError(f"boom while using {secret}")
-    except RuntimeError as crash:
-        _sys.excepthook(RuntimeError, crash, crash.__traceback__)
-    err = capsys.readouterr().err
-    assert "Traceback" in err and "RuntimeError: boom while using [redacted]" in err
-    _assert_hidden(err, secret=secret)
-
-
 def test_mask_cuts_only_after_masking_every_secret():
     secrets = [SECRETS[k][1] for k in SECRETS]
     text = "x" * 290 + "".join(secrets)
@@ -1391,8 +1375,6 @@ def test_mask_cuts_only_after_masking_every_secret():
     assert shown.endswith("...")
     for s in secrets:
         _assert_hidden(shown, secret=s)
-    assert connections.mask_lines(f"a {secrets[0]}\nb", {API_KEY_ENV: secrets[0]}) == (
-        "a [redacted]\nb")
 
 
 def test_blank_or_whitespace_secrets_mask_nothing():

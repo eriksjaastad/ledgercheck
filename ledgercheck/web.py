@@ -141,6 +141,7 @@ def make_server(
     store: RunStore, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, tracer: Tracer | None = None
 ) -> LedgerServer:
     """A bound, not yet serving, server; a non-loopback ``host`` raises ``ValueError``."""
+    connections.mask_output()  # its request and error logs go to stderr
     return LedgerServer((host, port), store, connections.tracer() if tracer is None else tracer)
 
 
@@ -251,7 +252,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(exc.status, _page(f"{exc.status.value} {exc.status.phrase}",
                                          f"<p class='error'>{e(exc)}</p>"))
         except Exception:  # never show a traceback to the client
-            self.log_error("%s", connections.mask_lines(traceback.format_exc()))
+            self.log_error("%s", traceback.format_exc())
             self._send(HTTPStatus.INTERNAL_SERVER_ERROR, _page("500 Internal Server Error", ""))
 
     def _send(self, status: HTTPStatus, body: bytes, location: str | None = None) -> None:
@@ -326,7 +327,7 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     resume_run(self.app.store, run_id, tracer=self.app.tracer)
                 except Exception as exc:  # the correction is saved; another one retries
-                    self.log_error("resume of %s failed: %s", run_id, connections.mask_lines(repr(exc)))
+                    self.log_error("resume of %s failed: %r", run_id, exc)
                     raise BadRequest(
                         f"correction saved, but resuming the run failed ({type(exc).__name__}); "
                         "the run is left to resume, so submit another correction to retry",
@@ -367,7 +368,7 @@ def run(args: argparse.Namespace) -> int:
         server = make_server(connections.run_store(args.runs_dir), args.host, args.port)
     except (ValueError, OverflowError, OSError, LangfuseUnavailable,
             connections.ConnectionConfigError) as exc:
-        print(connections.mask(f"serve: {exc}"), file=sys.stderr)
+        print(f"serve: {exc}", file=sys.stderr)
         return 2
     host, port = server.server_address[:2]
     print(f"ledgercheck serving on http://{host}:{port}/ (Ctrl-C to stop)", flush=True)
@@ -380,9 +381,9 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    connections.mask_output()
     return run(build_parser().parse_args(argv))
 
 
 if __name__ == "__main__":
-    connections.install_masked_excepthook()
     sys.exit(main())

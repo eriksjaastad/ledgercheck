@@ -47,6 +47,8 @@ from __future__ import annotations
 import argparse
 import sys
 
+from ledgercheck import connections
+
 FIELDS: tuple[tuple[str, str], ...] = (
     ("date", "YYYY-MM-DD"),
     ("tester", "beta user or operator"),
@@ -75,8 +77,7 @@ def template() -> str:
 
 def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.ArgumentParser:
     """Set up the beta-notes parser (a new one by default); --help shows the docstring."""
-    if parser is None:
-        parser = argparse.ArgumentParser(prog="python -m ledgercheck.beta_notes")
+    parser = parser or argparse.ArgumentParser(prog="python -m ledgercheck.beta_notes")
     parser.description = __doc__
     parser.formatter_class = argparse.RawDescriptionHelpFormatter
     return parser
@@ -88,6 +89,7 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    connections.mask_output()
     return run(build_parser().parse_args(argv))
 
 

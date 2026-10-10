@@ -95,7 +95,6 @@ import stat
 import sys
 import time
 import tomllib
-import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -998,38 +997,38 @@ def _file_state(path: Path) -> str:
     return state
 
 
-def masker(env: Mapping[str, str] | None = None,
-           limit: int = sys.maxsize) -> Callable[[Any], str]:
-    """A function that makes text safe to print: control characters removed, and every
-    secret of the configuration (see ``_secrets``) masked. Resolve it once per command
-    and pass everything that command prints through it."""
+def masker(env: Mapping[str, str] | None = None) -> Callable[[Any], str]:
+    """A function that removes control characters and masks every secret (see ``_secrets``)."""
     secrets = _secrets(_Sources(env))
-    return lambda text: _mask(text, secrets, limit)
+    return lambda text: _mask(text, secrets, sys.maxsize)
 
 
-def mask(text: Any, env: Mapping[str, str] | None = None, limit: int = 2000) -> str:
-    """``masker(env, limit)(text)``, for a one-off message."""
-    return masker(env, limit)(text)
+class _MaskedStream:
+    """A text stream that writes through to ``unmasked`` with every secret masked, line by line."""
 
+    def __init__(self, unmasked: Any, show: Callable[[Any], str]) -> None:
+        self.unmasked, self.show = unmasked, show
 
-def mask_lines(text: Any, env: Mapping[str, str] | None = None) -> str:
-    """Multi-line text (a report, a traceback) masked line by line, newlines kept."""
-    show = masker(env)
-    return "\n".join(show(line) for line in str(text).splitlines())
-
-
-def install_masked_excepthook(env: Mapping[str, str] | None = None) -> None:
-    """Make an unexpected crash print a masked traceback (still exit 1)."""
-
-    def hook(kind: type[BaseException], exc: BaseException, tb: Any) -> None:
-        text = "".join(traceback.format_exception(kind, exc, tb))
+    def write(self, text: str) -> int:
         try:
-            shown = mask_lines(text, env)
-        except Exception:  # never fall back to the unmasked text
-            shown = f"ledgercheck: unexpected {kind.__name__} (details withheld)"
-        print(shown, file=sys.stderr)
+            shown = "\n".join(map(self.show, text.split("\n")))
+        except Exception:  # never fall back to the raw text
+            shown = "ledgercheck: output withheld (masking failed)\n"
+        self.unmasked.write(shown)
+        return len(text)
 
-    sys.excepthook = hook
+    def writelines(self, lines: Iterable[str]) -> None:
+        self.write("".join(lines))
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.unmasked, name)
+
+
+def mask_output(env: Mapping[str, str] | None = None) -> None:
+    """Mask every secret in all this process prints (``masker(env)``); safe to call again."""
+    show = masker(env)  # a second call rewraps the unmasked streams, never a masked one
+    sys.stdout, sys.stderr = (_MaskedStream(getattr(stream, "unmasked", stream), show)
+                              for stream in (sys.stdout, sys.stderr))
 
 
 def describe(env: Mapping[str, str] | None = None) -> list[tuple[str, str, str]]:
@@ -1077,20 +1076,19 @@ def run(args: argparse.Namespace) -> int:
     """Print the resolved settings; exit 2 if a setting is invalid or the configured live
     provider is missing something it needs, else 0."""
     settings = load_settings()
-    for name, value, source in describe():  # already masked
-        print(settings.mask(f"{name:<12} {value:<44} {source}".rstrip()))
+    for name, value, source in describe():
+        print(f"{name:<12} {value:<44} {source}".rstrip())
     for problem in settings.problems:
-        print(settings.mask(f"connections: {problem}"), file=sys.stderr)
+        print(f"connections: {problem}", file=sys.stderr)
     for gap in settings.live_gaps:
-        print(settings.mask(f"connections: provider {settings.provider} needs {gap}"),
-              file=sys.stderr)
+        print(f"connections: provider {settings.provider} needs {gap}", file=sys.stderr)
     return 2 if settings.problems or settings.live_gaps else 0
 
 
 def main(argv: list[str] | None = None) -> int:
+    mask_output()
     return run(build_parser().parse_args(argv))
 
 
 if __name__ == "__main__":
-    install_masked_excepthook()
     sys.exit(main())
