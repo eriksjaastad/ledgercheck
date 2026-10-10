@@ -81,7 +81,8 @@ verdict. ``--json PATH`` also writes the report as JSON. Exit codes:
        the provider returned an error, or the golden dataset, a judge's
        scores or the JSON path were invalid
 
-An unexpected crash prints a traceback and exits 1 (Python's default).
+An unexpected error prints one line (``ledgercheck judge: unexpected <Type> at <file>:<line>``)
+and exits 2; Ctrl-C exits 130.
 """
 
 from __future__ import annotations
