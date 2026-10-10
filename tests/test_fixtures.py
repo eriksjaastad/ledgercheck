@@ -9,7 +9,12 @@ from pathlib import Path
 import pytest
 
 import ledgercheck
-from ledgercheck.fixtures_loader import FIXTURES_DIR, KNOWN_TAGS, FixtureError, load_cases
+from ledgercheck.fixtures_loader import (
+    FIXTURES_DIR,
+    KNOWN_TAGS,
+    FixtureError,
+    load_cases,
+)
 
 CASES = load_cases()
 ARITHMETIC_SEEDS = {"tax_mismatch", "subtotal_mismatch", "rounding"}

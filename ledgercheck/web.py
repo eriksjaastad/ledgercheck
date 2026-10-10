@@ -72,10 +72,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Mapping, cast
 from urllib.parse import parse_qs, urlsplit
 
+from ledgercheck import connections
 from ledgercheck.agents.approval import resume_run, run_pipeline
 from ledgercheck.fixtures_loader import FixtureCase, load_cases
 from ledgercheck.models import Invoice
-from ledgercheck import connections
 from ledgercheck.observability import LangfuseUnavailable, Tracer
 from ledgercheck.run_store import DEFAULT_ROOT, RunNotFound, RunRecord, RunStore, Stage
 

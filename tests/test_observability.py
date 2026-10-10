@@ -13,16 +13,16 @@ import pytest
 
 from ledgercheck import connections, observability
 from ledgercheck.agents import IntakeAgent, run_pipeline
-from ledgercheck.fixtures_loader import load_cases
 from ledgercheck.connections import HOST_ENV, PUBLIC_KEY_ENV, SECRET_KEY_ENV
+from ledgercheck.fixtures_loader import load_cases
 from ledgercheck.observability import (
     PIPELINE_TRACE,
     LangfuseTracer,
     LangfuseUnavailable,
     NullTracer,
     SpanRecord,
-    TraceRecord,
     Tracer,
+    TraceRecord,
     Usage,
     trace_run,
 )

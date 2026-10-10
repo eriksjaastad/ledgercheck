@@ -6,7 +6,12 @@ from decimal import Decimal
 import pytest
 
 from ledgercheck.agents import IntakeAgent, record_intake
-from ledgercheck.agents.llm_client import API_KEY_ENV, ENV_FLAG, LiveLLMDisabled, LLMClient
+from ledgercheck.agents.llm_client import (
+    API_KEY_ENV,
+    ENV_FLAG,
+    LiveLLMDisabled,
+    LLMClient,
+)
 from ledgercheck.fixtures_loader import FIXTURES_DIR, load_case, load_cases
 from ledgercheck.models import ExtractionResult, to_jsonable
 from ledgercheck.run_store import RunStatus, RunStore, Stage

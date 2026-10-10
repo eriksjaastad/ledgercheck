@@ -106,7 +106,12 @@ from itertools import groupby
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
-from ledgercheck.observability import LangfuseTracer, LangfuseUnavailable, NullTracer, Tracer
+from ledgercheck.observability import (
+    LangfuseTracer,
+    LangfuseUnavailable,
+    NullTracer,
+    Tracer,
+)
 from ledgercheck.run_store import DEFAULT_ROOT, RunStore
 
 ENV_FLAG = "LEDGERCHECK_LLM"

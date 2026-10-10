@@ -85,7 +85,7 @@ from enum import StrEnum
 from typing import Any, Callable, Mapping, Protocol
 
 from ledgercheck import connections
-from ledgercheck.connections import ConnectionConfigError, SETTINGS, Totals
+from ledgercheck.connections import SETTINGS, ConnectionConfigError, Totals
 
 
 class TaskKind(StrEnum):

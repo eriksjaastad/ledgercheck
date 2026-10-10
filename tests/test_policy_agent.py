@@ -7,7 +7,13 @@ from decimal import Decimal
 
 import pytest
 
-from ledgercheck.agents import IntakeAgent, PolicyAgent, PolicyResult, record_intake, record_policy
+from ledgercheck.agents import (
+    IntakeAgent,
+    PolicyAgent,
+    PolicyResult,
+    record_intake,
+    record_policy,
+)
 from ledgercheck.agents.llm_client import API_KEY_ENV, ENV_FLAG, LiveLLMDisabled
 from ledgercheck.agents.policy import (
     POLICY_DIR,

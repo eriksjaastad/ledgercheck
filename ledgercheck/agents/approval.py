@@ -64,6 +64,7 @@ from decimal import Decimal
 from types import MappingProxyType
 from typing import Mapping
 
+from ledgercheck import connections
 from ledgercheck.agents.intake import IntakeAgent, record_intake
 from ledgercheck.agents.policy import PolicyAgent, PolicyResult, _stated, record_policy
 from ledgercheck.fixtures_loader import FixtureCase
@@ -77,7 +78,6 @@ from ledgercheck.models import (
     Severity,
     _decimal,
 )
-from ledgercheck import connections
 from ledgercheck.observability import PIPELINE_TRACE, Tracer, trace_run
 from ledgercheck.run_store import RunRecord, RunStore, Stage, StepRecord
 
