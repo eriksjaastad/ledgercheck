@@ -77,7 +77,8 @@ from ledgercheck.models import (
     Severity,
     _decimal,
 )
-from ledgercheck.observability import PIPELINE_TRACE, Tracer, trace_run, tracer_from_env
+from ledgercheck import connections
+from ledgercheck.observability import PIPELINE_TRACE, Tracer, trace_run
 from ledgercheck.run_store import RunRecord, RunStore, Stage, StepRecord
 
 
@@ -269,7 +270,7 @@ def run_pipeline(
     ``store`` each step is recorded as soon as it is produced, so a failure
     leaves the run at the failed stage.
 
-    ``tracer`` defaults to ``tracer_from_env()``: ``NullTracer`` (nothing
+    ``tracer`` defaults to ``connections.tracer()``: ``NullTracer`` (nothing
     recorded or sent) unless Langfuse keys are set. The run is one trace with
     spans ``intake``, ``policy`` and ``approval`` (see
     ``ledgercheck.observability``); tracing never changes the result.
@@ -277,7 +278,7 @@ def run_pipeline(
     intake = IntakeAgent() if intake is None else intake
     policy = PolicyAgent(rerank=False) if policy is None else policy
     approval = ApprovalAgent() if approval is None else approval
-    tracer = tracer_from_env() if tracer is None else tracer
+    tracer = connections.tracer() if tracer is None else tracer
     case_name = case_id.case_id if isinstance(case_id, FixtureCase) else case_id
     with trace_run(tracer, PIPELINE_TRACE, {"case_id": case_name}) as trace:
         with trace.span(Stage.INTAKE.value):
@@ -328,7 +329,7 @@ def resume_run(
     extractor = "fixture" if intake_step is None else intake_step.output.get("extractor", "fixture")
     extraction = ExtractionResult(run_id, invoice, record.source, extractor=extractor)
     approval = ApprovalAgent() if approval is None else approval
-    tracer = tracer_from_env() if tracer is None else tracer
+    tracer = connections.tracer() if tracer is None else tracer
     meta = {"case_id": record.source, "run_id": run_id, "resumed_from": stage.value}
     with trace_run(tracer, PIPELINE_TRACE, meta) as trace:
         if stage is Stage.POLICY:

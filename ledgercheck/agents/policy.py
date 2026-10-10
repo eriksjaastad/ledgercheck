@@ -90,7 +90,6 @@ as the run's policy step::
 from __future__ import annotations
 
 import json
-import os
 import re
 import unicodedata
 from dataclasses import dataclass, field, replace
@@ -100,6 +99,7 @@ from types import MappingProxyType
 from typing import Any, Iterable, Mapping, Protocol, Sequence
 
 from ledgercheck.agents.llm_client import LLMClient
+from ledgercheck.connections import env_flag
 from ledgercheck.models import (
     CENT,
     CURRENCY_RE,
@@ -464,7 +464,7 @@ class PolicyAgent:
         if rerank is not None and not isinstance(rerank, bool):
             raise TypeError(f"rerank: expected a bool or None, got {rerank!r}")
         self.corpus = PolicyCorpus.load() if corpus is None else corpus
-        self.rerank = os.environ.get(RERANK_FLAG) == "1" if rerank is None else rerank
+        self.rerank = env_flag(RERANK_FLAG) if rerank is None else rerank
         self._reranker = reranker
 
     def check(

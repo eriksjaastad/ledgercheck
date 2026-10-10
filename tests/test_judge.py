@@ -1,4 +1,4 @@
-"""The judge gate: rubric drift guard, MockJudge scoring, pass rules, live gate and CLI exits."""
+"""The judge gate: rubric drift guard, MockJudge scoring, pass rules, live judge and CLI exits."""
 
 import copy
 import json
@@ -9,6 +9,7 @@ from decimal import Decimal
 import pytest
 
 from ledgercheck.agents.llm_client import LiveLLMDisabled
+from ledgercheck.agents.routing import MockRouter, TaskKind
 from ledgercheck.cli import main as cli_main
 from ledgercheck.eval import judge
 from ledgercheck.eval.judge import (
@@ -21,6 +22,8 @@ from ledgercheck.eval.judge import (
     LiveJudge,
     MockJudge,
     Verdict,
+    judge_prompt,
+    parse_verdict,
     pipeline_output,
     run_suite,
 )
@@ -228,18 +231,47 @@ def test_suite_report_defaults_to_the_shared_read_only_thresholds() -> None:
     assert report.thresholds is judge.THRESHOLDS and report.passed
 
 
+LIVE = {"LEDGERCHECK_LLM_PROVIDER": "openrouter", "LEDGERCHECK_MODEL_LARGE": "vendor/large-y",
+        "LEDGERCHECK_SPEND_CAP_USD": "0.10"}
+PERFECT = '{"accuracy": 5, "hallucination": 5, "formatting": 5, "notes": []}'
+
+
 @pytest.mark.parametrize("env", [{}, {"LEDGERCHECK_LLM": "true", "OPENROUTER_API_KEY": "k"},
                                  {"LEDGERCHECK_LLM": "1"}, {"LEDGERCHECK_LLM": "1",
                                                             "OPENROUTER_API_KEY": "  "}])
 def test_live_judge_refuses_without_the_gate(env) -> None:
     with pytest.raises(LiveLLMDisabled):
-        LiveJudge(env)
+        LiveJudge({**LIVE, **env})
 
 
-def test_live_judge_makes_no_call_past_the_gate() -> None:
-    live = LiveJudge({"LEDGERCHECK_LLM": "1", "OPENROUTER_API_KEY": "k"})
-    with pytest.raises(NotImplementedError):
-        live.score(CASES[0], pipeline_output(CASES[0]))
+def test_live_judge_scores_the_model_reply() -> None:
+    router = MockRouter({}, replies={TaskKind.JUDGE: f"Here you go:\n```json\n{PERFECT}\n```"})
+    report = run_suite(LiveJudge(router=router), cases=CASES[:1])
+    assert report.passed and report.judge == "mock"
+    [(task, model, prompt)] = router.calls
+    assert (task, model) == (TaskKind.JUDGE, "mock/large")
+    assert prompt == judge_prompt(CASES[0], pipeline_output(CASES[0]))
+    assert "GOLDEN: {" in prompt and "OUTPUT: {" in prompt
+    assert all(c.question in prompt for c in RUBRIC)
+
+
+@pytest.mark.parametrize("reply", [
+    "", "5/5/5", "[1, 2]", '{"accuracy": 5}', '{"accuracy": 9, "hallucination": 5, "formatting": 5}',
+    '{"accuracy": 5, "hallucination": 5, "formatting": 5, "notes": "fine"}', "{not json}",
+])
+def test_malformed_reply_fails_the_case_without_crashing(reply) -> None:
+    verdict = parse_verdict(reply)
+    assert dict(verdict.scores) == dict.fromkeys(CRITERIA, 0)
+    assert verdict.notes[0].startswith("judge reply unreadable: ")
+    report = run_suite(LiveJudge(router=MockRouter({}, replies={TaskKind.JUDGE: reply})),
+                       cases=CASES[:2])
+    assert report.passed_count == 0 and not report.passed
+
+
+def test_parse_verdict_keeps_notes() -> None:
+    reply = '{"accuracy": 4, "hallucination": 5, "formatting": 5, "notes": ["total off"]}'
+    assert parse_verdict(reply) == Verdict({"accuracy": 4, "hallucination": 5, "formatting": 5},
+                                           ("total off",))
 
 
 def test_cli_passes_and_writes_json(tmp_path, capsys) -> None:
@@ -267,13 +299,30 @@ def test_cli_fails_on_a_corrupted_case(monkeypatch, capsys) -> None:
 
 
 def test_cli_live_flag_exits_2_without_the_gate(monkeypatch, capsys) -> None:
-    monkeypatch.delenv("LEDGERCHECK_LLM", raising=False)
     assert cli_main(["judge", "--live"]) == judge.EXIT_ERROR
+    err = capsys.readouterr().err
+    assert "provider openrouter" in err and "LEDGERCHECK_LLM" in err
+    for name, value in LIVE.items():
+        monkeypatch.setenv(name, value)
+    assert judge.main(["--live"]) == judge.EXIT_ERROR
     assert "LEDGERCHECK_LLM" in capsys.readouterr().err
     monkeypatch.setenv("LEDGERCHECK_LLM", "1")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     assert judge.main(["--live"]) == judge.EXIT_ERROR
-    assert "not implemented" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "OPENROUTER_API_KEY is not set" in err and ".env" in err
+
+
+def test_cli_case_option_judges_only_those_cases(capsys) -> None:
+    first, last = CASES[0].case_id, CASES[-1].case_id
+    assert cli_main(["judge", "--case", last, "--case", first]) == judge.EXIT_PASS
+    printed = capsys.readouterr().out
+    assert "2/2 cases passed" in printed
+    assert printed.index(first) < printed.index(last)  # suite order
+
+
+def test_cli_unknown_case_exits_2(capsys) -> None:
+    assert cli_main(["judge", "--case", "no_such_case"]) == judge.EXIT_ERROR
+    assert "unknown golden case id(s): no_such_case" in capsys.readouterr().err
 
 
 def test_cli_unwritable_json_exits_2(tmp_path, capsys) -> None:
@@ -289,3 +338,4 @@ def test_help_documents_the_rubric(capsys) -> None:
     for c in RUBRIC:
         assert f"``{c.name}`` (threshold {c.threshold})" in text
     assert "--live" in text and "Exit codes" in text and "OPENROUTER_API_KEY" in text
+    assert "--case" in text and "ledgercheck connections --help" in text

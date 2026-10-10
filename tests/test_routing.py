@@ -1,4 +1,4 @@
-"""Model routing: tier mapping, env overrides, the live gate, no network, docstring drift."""
+"""Model routing: tier mapping, configured models, the live gate, no network, docstring drift."""
 
 import re
 import socket
@@ -6,10 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from ledgercheck import connections
 from ledgercheck.agents import routing
 from ledgercheck.agents.llm_client import API_KEY_ENV, ENV_FLAG, LiveLLMDisabled
 from ledgercheck.agents.routing import (
-    DEFAULT_MODELS,
+    MOCK_MODELS,
     MODEL_ENV,
     TASK_TIERS,
     MockRouter,
@@ -17,13 +18,19 @@ from ledgercheck.agents.routing import (
     Route,
     TaskKind,
     Tier,
-    default_router,
     resolve_models,
 )
+from ledgercheck.connections import ConnectionConfigError
 from ledgercheck.eval.judge import LiveJudge
 
-SMALL, LARGE = DEFAULT_MODELS[Tier.SMALL], DEFAULT_MODELS[Tier.LARGE]
-OPEN = {ENV_FLAG: "1", API_KEY_ENV: "fake-not-a-real-key"}
+SMALL, LARGE = MOCK_MODELS[Tier.SMALL], MOCK_MODELS[Tier.LARGE]
+LIVE_SMALL, LIVE_LARGE = "vendor/small-x", "vendor/large-y"
+PROVIDER_ENV = connections.SETTINGS["provider"][0]
+CAP_ENV = connections.SETTINGS["spend_cap_usd"][0]
+OPEN = {
+    ENV_FLAG: "1", API_KEY_ENV: "fake-not-a-real-key", PROVIDER_ENV: "openrouter",
+    MODEL_ENV[Tier.SMALL]: LIVE_SMALL, MODEL_ENV[Tier.LARGE]: LIVE_LARGE, CAP_ENV: "0.50",
+}
 
 
 @pytest.fixture
@@ -55,7 +62,7 @@ def test_mock_router_routes_each_task_kind(task, tier, model, fallback):
 
 def test_every_task_kind_has_a_tier_and_every_tier_a_model_and_env():
     assert set(TASK_TIERS) == set(TaskKind)
-    assert set(DEFAULT_MODELS) == set(MODEL_ENV) == set(Tier)
+    assert set(MOCK_MODELS) == set(MODEL_ENV) == set(Tier)
 
 
 def test_route_accepts_the_task_value_string():
@@ -72,7 +79,7 @@ def test_env_overrides_are_stripped():
 @pytest.mark.parametrize("value", ["", "  ", "\t\n"])
 def test_blank_env_override_falls_back_to_default(value):
     env = {name: value for name in MODEL_ENV.values()}
-    assert resolve_models(env) == dict(DEFAULT_MODELS)
+    assert resolve_models(env) == dict(MOCK_MODELS)
 
 
 def test_os_environ_is_the_default_env(monkeypatch):
@@ -119,17 +126,15 @@ def test_live_router_refuses_without_the_gate(env):
 
 
 def test_live_router_off_by_default(monkeypatch):
-    monkeypatch.delenv(ENV_FLAG, raising=False)
-    monkeypatch.delenv(API_KEY_ENV, raising=False)
     with pytest.raises(LiveLLMDisabled, match=ENV_FLAG):
         OpenRouterRouter()
 
 
-def test_live_router_past_the_gate_makes_no_request(no_network):
-    router = OpenRouterRouter(OPEN)
-    assert router.name == "openrouter"
-    with pytest.raises(NotImplementedError, match=re.escape(SMALL)):
-        router.complete(TaskKind.EXTRACTION, "Invoice INV-1 total 10.00")
+def test_live_router_needs_a_spend_cap_for_its_own_transport(no_network):
+    env = {k: v for k, v in OPEN.items() if k != CAP_ENV}
+    with pytest.raises(ConnectionConfigError, match="spend cap"):
+        OpenRouterRouter(env)
+    assert OpenRouterRouter(OPEN).totals.calls == 0
 
 
 def test_live_router_sends_the_routed_model_to_the_transport(no_network):
@@ -137,7 +142,19 @@ def test_live_router_sends_the_routed_model_to_the_transport(no_network):
     router = OpenRouterRouter(OPEN, transport=lambda model, prompt: sent.append(model) or "ok")
     assert router.complete(TaskKind.EXTRACTION, "x") == "ok"
     assert router.complete(TaskKind.RERANK, "y") == "ok"
-    assert sent == [SMALL, LARGE]
+    assert sent == [LIVE_SMALL, LIVE_LARGE]
+    assert router.route(TaskKind.EXTRACTION).fallback == LIVE_LARGE
+    assert router.totals is None  # a bare callable reports no totals
+
+
+def test_live_router_has_no_default_model_ids(no_network):
+    env = {k: v for k, v in OPEN.items() if k != MODEL_ENV[Tier.LARGE]}
+    router = OpenRouterRouter(env, transport=lambda model, prompt: pytest.fail("sent"))
+    assert router.route(TaskKind.EXTRACTION) == Route(TaskKind.EXTRACTION, Tier.SMALL,
+                                                       LIVE_SMALL, None)
+    with pytest.raises(ConnectionConfigError, match=MODEL_ENV[Tier.LARGE]) as exc:
+        router.complete(TaskKind.JUDGE, "x")
+    assert "connections.local.toml" in str(exc.value)
 
 
 closers = pytest.mark.parametrize(
@@ -169,7 +186,7 @@ def test_live_router_rechecks_the_gate_on_complete(close, no_network):
 def test_live_router_rechecks_the_gate_on_route(close, no_network):
     env = dict(OPEN)
     router = OpenRouterRouter(env)
-    assert router.route(TaskKind.EXTRACTION).model == SMALL
+    assert router.route(TaskKind.EXTRACTION).model == LIVE_SMALL
     close(env)
     with pytest.raises(LiveLLMDisabled) as exc:
         router.route(TaskKind.EXTRACTION)
@@ -177,10 +194,10 @@ def test_live_router_rechecks_the_gate_on_route(close, no_network):
 
 
 def test_live_router_rechecks_os_environ_on_route(monkeypatch, no_network):
-    monkeypatch.setenv(ENV_FLAG, "1")
-    monkeypatch.setenv(API_KEY_ENV, OPEN[API_KEY_ENV])
+    for name, value in OPEN.items():
+        monkeypatch.setenv(name, value)
     router = OpenRouterRouter()
-    assert router.route(TaskKind.JUDGE).model == LARGE
+    assert router.route(TaskKind.JUDGE).model == LIVE_LARGE
     monkeypatch.delenv(API_KEY_ENV)
     with pytest.raises(LiveLLMDisabled, match=API_KEY_ENV):
         router.route(TaskKind.JUDGE)
@@ -190,44 +207,49 @@ def test_live_router_rechecks_os_environ_on_complete(monkeypatch, no_network):
     def transport(model, prompt):
         pytest.fail("transport reached with the gate closed")
 
-    monkeypatch.setenv(ENV_FLAG, "1")
-    monkeypatch.setenv(API_KEY_ENV, OPEN[API_KEY_ENV])
+    for name, value in OPEN.items():
+        monkeypatch.setenv(name, value)
     router = OpenRouterRouter(transport=transport)
     monkeypatch.delenv(API_KEY_ENV)
     with pytest.raises(LiveLLMDisabled, match=API_KEY_ENV):
         router.complete(TaskKind.JUDGE, "x")
 
 
-# --- default router: mock unless the live flag is on -----------------------
+# --- connections.router(): the provider is config ---------------------------
 
 
 @pytest.mark.parametrize(
     "env",
-    [{}, {API_KEY_ENV: "sk-test"}, {ENV_FLAG: "true", API_KEY_ENV: "sk-test"}, {ENV_FLAG: "0"}],
+    [{}, {API_KEY_ENV: "sk-test"}, {ENV_FLAG: "1", API_KEY_ENV: "sk-test"}, {PROVIDER_ENV: "mock"}],
 )
-def test_default_router_is_mock_with_the_flag_off(env, no_network):
-    router = default_router(env)
+def test_router_is_mock_unless_the_provider_is_openrouter(env, no_network):
+    router = connections.router(env)
     assert type(router) is MockRouter
     assert router.complete(TaskKind.JUDGE, "x") == ""
 
 
-def test_default_router_reads_os_environ(monkeypatch):
-    monkeypatch.delenv(ENV_FLAG, raising=False)
-    assert type(default_router()) is MockRouter
+def test_router_reads_os_environ(monkeypatch):
+    assert type(connections.router()) is MockRouter
+    for name, value in OPEN.items():
+        monkeypatch.setenv(name, value)
+    assert type(connections.router()) is OpenRouterRouter
 
 
-def test_default_router_with_the_flag_on_is_live_and_still_gated(no_network):
-    assert type(default_router(OPEN)) is OpenRouterRouter
+def test_openrouter_provider_is_live_and_still_gated(no_network):
+    assert type(connections.router(OPEN)) is OpenRouterRouter
     with pytest.raises(LiveLLMDisabled):
-        default_router({ENV_FLAG: "1"})
+        connections.router({**OPEN, ENV_FLAG: "0"})
+    with pytest.raises(ConnectionConfigError, match="unknown provider"):
+        connections.router({PROVIDER_ENV: "elsewhere"})
 
 
 # --- caller wiring: LiveJudge asks the router ------------------------------
 
 
 def test_live_judge_takes_the_judge_model_from_the_router(no_network):
-    assert LiveJudge(OPEN).model == LARGE
+    assert LiveJudge(OPEN).model == LIVE_LARGE
     assert LiveJudge({**OPEN, MODEL_ENV[Tier.LARGE]: "vendor/judge"}).model == "vendor/judge"
+    assert LiveJudge({}).model == LARGE  # provider mock
 
 
 # --- drift: the module docstring matches the constants ---------------------
@@ -240,23 +262,24 @@ def test_docstring_task_table_matches_task_tiers():
     assert rows == {task.value: tier.value for task, tier in TASK_TIERS.items()}
 
 
-def test_docstring_default_models_match_constants():
+def test_docstring_mock_models_match_constants():
     rows = dict(re.findall(r"^ +(small|large) +``([^`]+)``$", DOC, re.MULTILINE))
-    assert rows == {tier.value: model for tier, model in DEFAULT_MODELS.items()}
+    assert rows == {tier.value: model for tier, model in MOCK_MODELS.items()}
 
 
-def test_live_judge_is_the_only_production_router_construction():
+def test_connections_is_the_only_production_router_construction():
     package = Path(routing.__file__).parents[1]
-    call = re.compile(r"\b(\w+Router|default_router)\(")
+    call = re.compile(r"\b(\w+Router|\w*Transport)\(")
     builds = {
         str(path.relative_to(package)): call.findall(path.read_text())
         for path in package.rglob("*.py")
         if path != Path(routing.__file__)
     }
     assert {name: found for name, found in builds.items() if found} == {
-        "eval/judge.py": ["OpenRouterRouter"]
+        "connections.py": ["OpenRouterTransport", "MockRouter", "OpenRouterTransport",
+                           "OpenRouterRouter"],
     }
-    assert "default_router()``" in DOC and "The only production caller is ``LiveJudge``" in DOC
+    assert "connections.router()``" in DOC and "the only production caller is ``LiveJudge``" in DOC
 
 
 def test_docstring_names_env_vars_and_runbook_sections():

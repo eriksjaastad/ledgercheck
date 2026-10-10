@@ -1,0 +1,19 @@
+# Copy to connections.local.toml (gitignored) and fill in.
+# Environment variables and .env win over this file: ledgercheck connections --help
+
+provider = "openrouter"        # "mock" (the default) makes no calls
+# api_key = "your-key-here"     # or OPENROUTER_API_KEY in your shell or .env
+base_url = "https://openrouter.ai/api/v1"
+spend_cap_usd = 0.50           # hard cap per run, in USD; required for live runs
+max_tokens = 1024              # per reply
+
+[models]
+# Model ids your provider serves, e.g. from its model list.
+small = "provider/model-id"
+large = "provider/model-id"
+
+# USD per million tokens, copied from your provider's price list.
+# One table per model id used above.
+[prices."provider/model-id"]
+prompt = 0.0
+completion = 0.0

@@ -29,7 +29,7 @@ Offline
 -------
 Runs use the fixture path: no LLM call and no network. Tracing is
 ``NullTracer`` unless ``LANGFUSE_PUBLIC_KEY`` and ``LANGFUSE_SECRET_KEY`` are
-set (``ledgercheck.observability``); keys set without the SDK fail at start.
+set (``ledgercheck.connections``); keys set without the SDK fail at start.
 
 Routes
 ------
@@ -75,7 +75,8 @@ from urllib.parse import parse_qs, urlsplit
 from ledgercheck.agents.approval import resume_run, run_pipeline
 from ledgercheck.fixtures_loader import FixtureCase, load_cases
 from ledgercheck.models import Invoice
-from ledgercheck.observability import LangfuseUnavailable, Tracer, tracer_from_env
+from ledgercheck import connections
+from ledgercheck.observability import LangfuseUnavailable, Tracer
 from ledgercheck.run_store import DEFAULT_ROOT, RunNotFound, RunRecord, RunStore, Stage
 
 DEFAULT_HOST = "127.0.0.1"
@@ -140,7 +141,7 @@ def make_server(
     store: RunStore, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, tracer: Tracer | None = None
 ) -> LedgerServer:
     """A bound, not yet serving, server; a non-loopback ``host`` raises ``ValueError``."""
-    return LedgerServer((host, port), store, tracer_from_env() if tracer is None else tracer)
+    return LedgerServer((host, port), store, connections.tracer() if tracer is None else tracer)
 
 
 def check_magnitude(field: str, value: str) -> None:
@@ -250,7 +251,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(exc.status, _page(f"{exc.status.value} {exc.status.phrase}",
                                          f"<p class='error'>{e(exc)}</p>"))
         except Exception:  # never show a traceback to the client
-            self.log_error("%s", traceback.format_exc())
+            self.log_error("%s", connections.mask_lines(traceback.format_exc()))
             self._send(HTTPStatus.INTERNAL_SERVER_ERROR, _page("500 Internal Server Error", ""))
 
     def _send(self, status: HTTPStatus, body: bytes, location: str | None = None) -> None:
@@ -325,7 +326,7 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     resume_run(self.app.store, run_id, tracer=self.app.tracer)
                 except Exception as exc:  # the correction is saved; another one retries
-                    self.log_error("resume of %s failed: %r", run_id, exc)
+                    self.log_error("resume of %s failed: %s", run_id, connections.mask_lines(repr(exc)))
                     raise BadRequest(
                         f"correction saved, but resuming the run failed ({type(exc).__name__}); "
                         "the run is left to resume, so submit another correction to retry",
@@ -363,9 +364,10 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
 def run(args: argparse.Namespace) -> int:
     """Serve until Ctrl-C (exit 0); a refused host or a bind error exits 2."""
     try:
-        server = make_server(RunStore(args.runs_dir), args.host, args.port)
-    except (ValueError, OverflowError, OSError, LangfuseUnavailable) as exc:
-        print(f"serve: {exc}", file=sys.stderr)
+        server = make_server(connections.run_store(args.runs_dir), args.host, args.port)
+    except (ValueError, OverflowError, OSError, LangfuseUnavailable,
+            connections.ConnectionConfigError) as exc:
+        print(connections.mask(f"serve: {exc}"), file=sys.stderr)
         return 2
     host, port = server.server_address[:2]
     print(f"ledgercheck serving on http://{host}:{port}/ (Ctrl-C to stop)", flush=True)
@@ -382,4 +384,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    connections.install_masked_excepthook()
     sys.exit(main())

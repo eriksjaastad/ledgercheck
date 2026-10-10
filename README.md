@@ -3,7 +3,7 @@
 [![CI](https://github.com/eriksjaastad/ledgercheck/actions/workflows/ci.yml/badge.svg)](https://github.com/eriksjaastad/ledgercheck/actions/workflows/ci.yml)
 [![Image](https://github.com/eriksjaastad/ledgercheck/actions/workflows/image.yml/badge.svg)](https://github.com/eriksjaastad/ledgercheck/pkgs/container/ledgercheck)
 
-An invoice-reconciliation pipeline (intake, policy check, approval flags) with a golden-dataset eval gate. Today it runs offline and deterministically on the bundled sample invoices; the live LLM path is not built yet.
+An invoice-reconciliation pipeline (intake, policy check, approval flags) with a golden-dataset eval gate. By default it runs offline and deterministically on the bundled sample invoices; an LLM judge is opt-in with your own key and a hard spend cap.
 
 Not a full ERP. Not a payments processor. Not a hosted SaaS you sign up for here.
 
@@ -21,6 +21,10 @@ pip install -e ".[dev]"
 ledgercheck --help
 pytest
 ```
+
+## Connecting a model (optional)
+
+To connect a model with your own key, see `ledgercheck connections --help`.
 
 ## Docker
 

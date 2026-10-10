@@ -9,12 +9,13 @@ JSON invoice *is* the expected extraction; the text is not parsed here.
 ``field_confidence`` and ``warnings`` are left empty: the fixture path reports
 no confidence and finds nothing to warn about.
 
-Live path (off)
----------------
+Live path (not built)
+---------------------
 ``IntakeAgent.extract_text`` sends raw text to an LLM client. Without an
-injected client it builds ``llm_client.LLMClient``, which raises
-``LiveLLMDisabled`` unless live extraction is explicitly enabled (see that
-module). So the default configuration never spends tokens.
+injected client it builds ``llm_client.LLMClient``, which runs the spend gate
+in ``ledgercheck.connections`` and raises ``LiveLLMDisabled`` unless live calls
+are explicitly enabled; past the gate, extraction is not implemented yet. So
+the default configuration never spends tokens.
 
 Recording on a run
 ------------------

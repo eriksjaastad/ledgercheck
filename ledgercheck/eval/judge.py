@@ -53,25 +53,33 @@ comparing the document with the golden case, as described above. A correct
 pipeline scores 5/5/5 on every case, and an injected wrong output loses points
 on the criterion it breaks.
 
-``LiveJudge`` (``--live``) will send the rubric, case and output to a model.
-It goes through the live LLM spend gate in ``ledgercheck.agents.llm_client``:
-it raises ``LiveLLMDisabled`` unless ``LEDGERCHECK_LLM=1`` and
-``OPENROUTER_API_KEY`` is non-blank. Past the gate it asks the model router
-(``ledgercheck.agents.routing``, task ``judge``) for its model, shown as
-``LiveJudge.model``, then makes no network call and raises
-``NotImplementedError``; the real request is not implemented yet.
+``LiveJudge`` (``--live``) sends a compact prompt to a model: the rubric
+questions, the golden expectation and the output, both as JSON. It asks for
+a JSON reply ``{"accuracy": n, "hallucination": n, "formatting": n,
+"notes": [...]}``. A reply that is not such an object, or has scores outside
+0..5, fails that case with scores of 0 and a note; it does not stop the run.
+The model comes from the router for the configured provider (task ``judge``,
+large tier) and is shown as ``LiveJudge.model``.
+
+``--live`` needs provider ``openrouter``, ``LEDGERCHECK_LLM=1``,
+``OPENROUTER_API_KEY``, a large-tier model id, its prices and a spend cap
+(``ledgercheck connections --help`` lists every setting and where to put it).
+Start with one small case, ``--case <case_id>``. After a live run the
+judge prints the model, calls, tokens and cost against the cap. A call that
+could exceed the cap is refused before it is sent, and the run stops.
 
 Running
 -------
 ``ledgercheck judge`` or ``python -m ledgercheck.eval.judge`` runs the whole
-golden suite and prints one row per case (score per criterion, pass/FAIL,
-then what the judge found) followed by the suite verdict. ``--json PATH`` also
-writes the report as JSON. Exit codes:
+golden suite (or only the ``--case`` ids) and prints one row per case (score
+per criterion, pass/FAIL, then what the judge found) followed by the suite
+verdict. ``--json PATH`` also writes the report as JSON. Exit codes:
 
     0  the suite passed
     1  the suite fell below the pass rule
-    2  usage error, the live gate refused, the live judge is not implemented,
-       or the golden dataset, a judge's scores or the JSON path were invalid
+    2  usage error, an unknown ``--case``, the live gate or spend cap refused,
+       the provider returned an error, or the golden dataset, a judge's
+       scores or the JSON path were invalid
 
 An unexpected crash prints a traceback and exits 1 (Python's default).
 """
@@ -89,10 +97,11 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
+from ledgercheck import connections
 from ledgercheck.agents.approval import PipelineResult
-from ledgercheck.agents.llm_client import API_KEY_ENV, ENV_FLAG, LiveLLMDisabled
 from ledgercheck.agents.policy import PolicyResult
-from ledgercheck.agents.routing import OpenRouterRouter, TaskKind
+from ledgercheck.agents.routing import ModelRouter, TaskKind
+from ledgercheck.connections import API_KEY_ENV, ENV_FLAG, LiveLLMDisabled, TransportError
 from ledgercheck.golden import (
     GoldenCase,
     GoldenError,
@@ -103,7 +112,7 @@ from ledgercheck.golden import (
     load_golden_cases,
     run_case,
 )
-from ledgercheck.models import ApprovalDecision, to_jsonable
+from ledgercheck.models import ApprovalDecision, Invoice, to_jsonable
 
 SCORE_MIN, SCORE_MAX = 0, 5
 
@@ -162,17 +171,25 @@ class Judge(Protocol):
     def score(self, case: GoldenCase, output: Any) -> Verdict: ...
 
 
-def output_document(result: PipelineResult) -> dict[str, Any]:
-    """The pipeline output as the JSON document a judge scores (see module docstring)."""
-
+def _document(invoice: Invoice, policy: PolicyResult, decision: ApprovalDecision) -> dict[str, Any]:
     def hits(hs: Sequence[Any]) -> list[dict[str, Any]]:
         return [{k: to_jsonable(getattr(h, k)) for k in _HIT_FIELDS} for h in hs]
 
     return {
-        "extraction": to_jsonable(result.extraction.invoice),
-        "policy": {"retrieved": list(result.policy.retrieved), "hits": hits(result.policy.hits)},
-        "approval": {"outcome": result.decision.outcome.value, "hits": hits(result.decision.hits)},
+        "extraction": to_jsonable(invoice),
+        "policy": {"retrieved": list(policy.retrieved), "hits": hits(policy.hits)},
+        "approval": {"outcome": decision.outcome.value, "hits": hits(decision.hits)},
     }
+
+
+def output_document(result: PipelineResult) -> dict[str, Any]:
+    """The pipeline output as the JSON document a judge scores (see module docstring)."""
+    return _document(result.extraction.invoice, result.policy, result.decision)
+
+
+def expected_document(case: GoldenCase) -> dict[str, Any]:
+    """The golden expectation in the same layout as ``output_document``."""
+    return _document(case.expected_extraction, case.expected_policy, case.expected_decision)
 
 
 def _parse(case: GoldenCase, name: str, raw: Any) -> Any:
@@ -270,22 +287,58 @@ class MockJudge:
         }, tuple(notes))
 
 
-class LiveJudge:
-    """LLM judge behind the live spend gate; constructing one is the gate.
+def judge_prompt(case: GoldenCase, output: Any) -> str:
+    """The live judge's prompt: rubric questions, golden expectation, output."""
+    compact = {"separators": (",", ":"), "sort_keys": True, "default": str}
+    rubric = "\n".join(f"- {c.name}: {c.question}" for c in RUBRIC)
+    return (
+        "Grade OUTPUT against GOLDEN, the expected result of an invoice check. Score each "
+        f"criterion as an integer {SCORE_MIN}-{SCORE_MAX} ({SCORE_MAX} = no problems):\n"
+        f"{rubric}\n"
+        'Reply with only a JSON object: {"accuracy": n, "hallucination": n, "formatting": n, '
+        '"notes": ["one short line per problem"]}\n'
+        f"GOLDEN: {json.dumps(expected_document(case), **compact)}\n"
+        f"OUTPUT: {json.dumps(output, **compact)}"
+    )
 
-    Raises ``LiveLLMDisabled`` unless the flag and key are set (``env`` as in
-    ``LLMClient``). ``model`` is the router's pick for the ``judge`` task.
-    ``score`` makes no request yet: it raises ``NotImplementedError``.
+
+def parse_verdict(reply: str) -> Verdict:
+    """A model reply as a ``Verdict``; an unreadable reply scores 0 with a note saying why."""
+    start, end = reply.find("{"), reply.rfind("}")
+    problem = "no JSON object in the reply"
+    if 0 <= start < end:
+        try:
+            data = json.loads(reply[start:end + 1])
+            notes = data.pop("notes", []) if isinstance(data, dict) else None
+            if not isinstance(notes, list):
+                raise JudgeError("expected an object with a list of notes")
+            return Verdict(data, tuple(str(n) for n in notes))
+        except ValueError as exc:  # JSONDecodeError and JudgeError
+            problem = str(exc)
+    return Verdict(dict.fromkeys(CRITERIA, SCORE_MIN), (f"judge reply unreadable: {problem}",))
+
+
+class LiveJudge:
+    """LLM judge: asks the router's ``judge`` model to score each case.
+
+    ``router`` defaults to ``connections.router(env)``, the router for the
+    configured provider (behind the spend gate when live). ``model`` is the
+    router's pick for the ``judge`` task.
     """
 
-    name = "openrouter"
-
-    def __init__(self, env: Mapping[str, str] | None = None) -> None:
-        self._router = OpenRouterRouter(env)
+    def __init__(self, env: Mapping[str, str] | None = None, *,
+                 router: ModelRouter | None = None) -> None:
+        self._router = connections.router(env) if router is None else router
+        self.name = self._router.name
         self.model = self._router.route(TaskKind.JUDGE).model
 
+    @property
+    def totals(self) -> connections.Totals | None:
+        """Calls, tokens and cost so far, when the router reports them."""
+        return getattr(self._router, "totals", None)
+
     def score(self, case: GoldenCase, output: Any) -> Verdict:
-        raise NotImplementedError("live LLM judging is not implemented yet")
+        return parse_verdict(self._router.complete(TaskKind.JUDGE, judge_prompt(case, output)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -388,24 +441,71 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
     parser.add_argument("--json", type=Path, metavar="PATH",
                         help="also write the report as JSON to PATH")
     parser.add_argument("--live", action="store_true",
-                        help=f"use the live LLM judge; needs {ENV_FLAG}=1 and {API_KEY_ENV}, "
-                             "and is not implemented yet (exit 2)")
+                        help=f"use the live LLM judge; needs provider openrouter, {ENV_FLAG}=1, "
+                             f"{API_KEY_ENV}, a model, prices and a spend cap "
+                             "(see ledgercheck connections --help)")
+    parser.add_argument("--case", action="append", metavar="CASE_ID",
+                        help="judge only this golden case (repeatable)")
     return parser
+
+
+def select_cases(case_ids: Sequence[str] | None) -> list[GoldenCase]:
+    """The golden cases named by ``case_ids`` in suite order (all when ``None``)."""
+    cases = load_golden_cases()
+    if not case_ids:
+        return cases
+    unknown = sorted(set(case_ids) - {c.case_id for c in cases})
+    if unknown:
+        raise GoldenError(f"unknown golden case id(s): {', '.join(unknown)}")
+    return [c for c in cases if c.case_id in case_ids]
+
+
+def _live_judge() -> LiveJudge:
+    settings = connections.load_settings()
+    if settings.problems:  # e.g. an unreadable connections file: say so, not "provider mock"
+        raise connections.ConnectionConfigError("; ".join(settings.problems))
+    provider = settings.provider
+    if provider != "openrouter":
+        raise connections.ConnectionConfigError(
+            f"--live needs provider openrouter (now {provider!r}): set "
+            f"LEDGERCHECK_LLM_PROVIDER=openrouter or provider in connections.local.toml, "
+            f"plus {ENV_FLAG}=1 and {API_KEY_ENV}")
+    return LiveJudge()
+
+
+def _masked(value: Any, show: Callable[[Any], str]) -> Any:
+    """``value`` (JSON-shaped) with every string passed through ``show``."""
+    if isinstance(value, str):
+        return show(value)
+    if isinstance(value, list):
+        return [_masked(v, show) for v in value]
+    if isinstance(value, dict):
+        return {k: _masked(v, show) for k, v in value.items()}
+    return value
 
 
 def run(args: argparse.Namespace) -> int:
     """Run the suite for parsed ``args`` and return the exit code."""
+    show = connections.masker()  # everything printed or written goes through it
+    live = None
     try:
-        report = run_suite(LiveJudge() if args.live else MockJudge())
-    except (LiveLLMDisabled, NotImplementedError, GoldenError, JudgeError) as exc:
-        print(f"judge: {exc}", file=sys.stderr)
+        cases = select_cases(args.case)
+        live = _live_judge() if args.live else None
+        report = run_suite(MockJudge() if live is None else live, cases)
+    except (LiveLLMDisabled, TransportError, GoldenError, JudgeError) as exc:
+        print(show(f"judge: {exc}"), file=sys.stderr)
+        if live is not None and live.totals is not None:
+            print(show(f"live run ({live.model}): {live.totals.line()}"), file=sys.stderr)
         return EXIT_ERROR
-    print(format_report(report))
+    print("\n".join(show(line) for line in format_report(report).splitlines()))
+    if live is not None and live.totals is not None:
+        print(show(f"live run ({live.model}): {live.totals.line()}"))
     if args.json is not None:
+        document = _masked(report.to_json(), show)  # notes can quote the model's reply
         try:
-            args.json.write_text(json.dumps(report.to_json(), indent=2) + "\n", encoding="utf-8")
+            args.json.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
         except OSError as exc:
-            print(f"judge: cannot write {args.json}: {exc}", file=sys.stderr)
+            print(show(f"judge: cannot write {args.json}: {exc}"), file=sys.stderr)
             return EXIT_ERROR
     return EXIT_PASS if report.passed else EXIT_FAIL
 
@@ -415,4 +515,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    connections.install_masked_excepthook()
     sys.exit(main())

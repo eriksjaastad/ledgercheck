@@ -1,4 +1,4 @@
-"""Tracing: NullTracer default, env factory, pipeline spans, Langfuse adapter (faked)."""
+"""Tracing: NullTracer default, connections.tracer factory, pipeline spans, Langfuse adapter (faked)."""
 
 import os
 import re
@@ -11,14 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from ledgercheck import observability
+from ledgercheck import connections, observability
 from ledgercheck.agents import IntakeAgent, run_pipeline
 from ledgercheck.fixtures_loader import load_cases
+from ledgercheck.connections import HOST_ENV, PUBLIC_KEY_ENV, SECRET_KEY_ENV
 from ledgercheck.observability import (
-    HOST_ENV,
     PIPELINE_TRACE,
-    PUBLIC_KEY_ENV,
-    SECRET_KEY_ENV,
     LangfuseTracer,
     LangfuseUnavailable,
     NullTracer,
@@ -27,7 +25,6 @@ from ledgercheck.observability import (
     Tracer,
     Usage,
     trace_run,
-    tracer_from_env,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -110,7 +107,7 @@ def fake_sdk(monkeypatch):
 
 
 def test_null_tracer_is_the_default_and_a_no_op():
-    tracer = tracer_from_env()
+    tracer = connections.tracer()
     assert type(tracer) is NullTracer
     assert isinstance(tracer, Tracer)
     with trace_run(tracer, "t", {"k": "v"}) as run:
@@ -134,12 +131,12 @@ def test_null_tracer_is_the_default_and_a_no_op():
 ])
 def test_factory_picks_null_tracer_when_a_key_is_missing_or_blank(env, sdk_missing):
     # sdk_missing: any attempt to build a LangfuseTracer would raise.
-    assert type(tracer_from_env(env)) is NullTracer
+    assert type(connections.tracer(env)) is NullTracer
 
 
 def test_keys_set_but_sdk_missing_fails_clearly(sdk_missing, monkeypatch):
     with pytest.raises(LangfuseUnavailable, match=r"ledgercheck\[langfuse\]") as err:
-        tracer_from_env(KEYS)
+        connections.tracer(KEYS)
     assert KEYS[SECRET_KEY_ENV] not in str(err.value)
     for name, value in KEYS.items():
         monkeypatch.setenv(name, value)
@@ -195,9 +192,9 @@ def test_step_usage_is_recorded_when_a_step_reports_it():
 
 def test_langfuse_tracer_maps_the_pipeline_onto_the_sdk(fake_sdk):
     env = {**KEYS, HOST_ENV: "https://langfuse.example"}
-    tracer = tracer_from_env(env)
+    tracer = connections.tracer(env)
     assert type(tracer) is LangfuseTracer
-    assert tracer_from_env(env) is tracer  # one client per key set
+    assert connections.tracer(env) is tracer  # one client per key set
     run_pipeline("clean_baseline", run_id="run-1", tracer=tracer)
     assert fake_sdk[0] == ("client", {
         "public_key": "pk-lf-test", "secret_key": "sk-lf-test", "host": "https://langfuse.example",
@@ -213,7 +210,7 @@ def test_langfuse_tracer_maps_the_pipeline_onto_the_sdk(fake_sdk):
 
 
 def test_blank_host_is_left_to_the_sdk_default(fake_sdk):
-    tracer_from_env({**KEYS, HOST_ENV: " "})
+    connections.tracer({**KEYS, HOST_ENV: " "})
     assert fake_sdk == [("client", {"public_key": "pk-lf-test", "secret_key": "sk-lf-test"})]
 
 
@@ -248,6 +245,13 @@ def test_default_path_does_not_import_langfuse():
     done = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env,
                           capture_output=True, text=True, timeout=60)
     assert done.returncode == 0, done.stderr
+
+
+def test_dotenv_keys_turn_tracing_on(fake_sdk, tmp_path, monkeypatch):
+    monkeypatch.setattr(connections, "DOTENV_PATH", tmp_path / ".env")
+    (tmp_path / ".env").write_text(f"{PUBLIC_KEY_ENV}=pk-lf-test\n{SECRET_KEY_ENV}='sk-lf-test'\n")
+    assert type(connections.tracer()) is LangfuseTracer
+    assert fake_sdk[0] == ("client", {"public_key": "pk-lf-test", "secret_key": "sk-lf-test"})
 
 
 def test_docstring_env_vars_and_extra_match_the_code():
