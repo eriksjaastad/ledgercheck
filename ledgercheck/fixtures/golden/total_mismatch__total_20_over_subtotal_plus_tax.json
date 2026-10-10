@@ -1,8 +1,8 @@
 {
-  "case_id": "unchecked_gap__total_not_subtotal_plus_tax",
-  "description": "Total 770.75 is 20.00 more than subtotal 700.00 + tax 50.75 = 750.75; total arithmetic is not checked yet, so it approves.",
+  "case_id": "total_mismatch__total_20_over_subtotal_plus_tax",
+  "description": "Total 770.75 is 20.00 more than subtotal 700.00 + tax 50.75 = 750.75, so APR-TOTAL escalates it.",
   "tags": [
-    "unchecked_gap"
+    "total_mismatch"
   ],
   "input": {
     "invoice": {
@@ -57,8 +57,16 @@
       "hits": []
     },
     "approval": {
-      "outcome": "approve",
-      "hits": []
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "APR-TOTAL",
+          "severity": "error",
+          "field": "total",
+          "expected": "750.75",
+          "observed": "770.75"
+        }
+      ]
     }
   }
 }

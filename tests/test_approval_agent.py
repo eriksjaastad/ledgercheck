@@ -20,11 +20,13 @@ from ledgercheck.agents import (
 )
 from ledgercheck.agents.approval import (
     decide_outcome,
+    rule_line_amounts,
     rule_missing_po,
     rule_po_amount,
     rule_policy_hits,
     rule_subtotal,
     rule_tax,
+    rule_total,
 )
 from ledgercheck.agents.policy import RERANK_FLAG
 from ledgercheck.fixtures_loader import FIXTURES_DIR, load_case, load_cases
@@ -186,6 +188,29 @@ def test_subtotal_agrees_on_clean_invoice():
     assert rule_subtotal(invoice("clean_baseline")) == ()
 
 
+def test_line_amount_a_cent_off_is_error():
+    first, *rest = invoice("clean_baseline").line_items
+    off = dataclasses.replace(first, amount=Decimal("510.01"))
+    (hit,) = rule_line_amounts(invoice("clean_baseline", line_items=(off, *rest)))
+    assert (hit.rule_id, hit.severity) == ("APR-LINE-AMOUNT", Severity.ERROR)
+    assert (hit.expected, hit.observed) == ("510.00", "510.01")
+    assert hit.message.startswith("line 1 amount 510.01 but 12 x 42.50")
+
+
+def test_line_amount_sub_cent_gap_is_rounding():
+    first, *rest = invoice("clean_baseline").line_items
+    third = dataclasses.replace(first, quantity=Decimal("3"), unit_price=Decimal("0.335"),
+                                amount=Decimal("1.00"))
+    assert rule_line_amounts(invoice("clean_baseline", line_items=(third, *rest))) == ()
+
+
+def test_total_mismatch_is_error():
+    inv = invoice("clean_baseline")
+    (hit,) = rule_total(dataclasses.replace(inv, total=inv.total + Decimal("0.01")))
+    assert (hit.rule_id, hit.severity) == ("APR-TOTAL", Severity.ERROR)
+    assert (hit.expected, hit.observed) == (str(inv.total), str(inv.total + Decimal("0.01")))
+
+
 def test_tax_mismatch_is_error():
     (hit,) = rule_tax(invoice("tax_mismatch"))
     assert (hit.rule_id, hit.severity) == ("APR-TAX-AMOUNT", Severity.ERROR)
@@ -323,6 +348,7 @@ def test_record_approval_rejects_wrong_run_and_wrong_stage(store):
 def test_resume_from_policy_rechecks_corrected_invoice(store):
     run_pipeline("tax_mismatch", store=store, run_id="run-t")
     store.apply_correction("run-t", "tax_amount", "435.90", corrected_by="reviewer")
+    store.apply_correction("run-t", "total", "6448.25", corrected_by="reviewer")
     result = resume_run(store, "run-t", tracer=NullTracer())
     assert result.extraction.invoice.tax_amount == Decimal("435.90")
     assert result.extraction.extractor == "fixture" and result.extraction.source == "tax_mismatch"

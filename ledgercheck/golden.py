@@ -91,6 +91,7 @@ means updating the table::
     tag      currency_mismatch             4
     tag      duplicate_candidate           2
     tag      foreign_currency             11
+    tag      line_amount_mismatch          1
     tag      missing_po                   13
     tag      multi_issue                   7
     tag      no_tax_rate                   3
@@ -100,12 +101,14 @@ means updating the table::
     tag      subtotal_mismatch             6
     tag      tax_mismatch                 11
     tag      tax_rate_mismatch             6
-    tag      unchecked_gap                 4
+    tag      total_mismatch                1
+    tag      unchecked_gap                 2
     tag      unknown_po                    3
     tag      unknown_vendor                5
     tag      vendor_alias                  8
     tag      vendor_mismatch               3
     tag      weird_formatting              8
+    rule     APR-LINE-AMOUNT (error)       1
     rule     APR-PO-AMOUNT (error)         4
     rule     APR-PO-MISSING (info)         4
     rule     APR-PO-MISSING (warning)      9
@@ -113,6 +116,7 @@ means updating the table::
     rule     APR-SUBTOTAL (error)          6
     rule     APR-TAX-AMOUNT (error)        6
     rule     APR-TAX-ROUNDING (warning)    6
+    rule     APR-TOTAL (error)             1
     rule     POL-CURRENCY (error)          4
     rule     POL-PO-REQUIRED (warning)     9
     rule     POL-TAX-AMOUNT (error)       10
@@ -121,15 +125,15 @@ means updating the table::
     rule     POL-VENDOR-NAME (error)       3
     rule     POL-VENDOR-NO-ID (info)       4
     rule     POL-VENDOR-UNKNOWN (error)    5
-    outcome  approve                      31
+    outcome  approve                      29
     outcome  flag                         14
-    outcome  needs_human                  29
+    outcome  needs_human                  31
 
 No case can fire these with the shipped corpus (``UNREACHABLE_RULES``):
 ``POL-VENDOR-ALIAS``, because every corpus alias normalizes to its vendor's
 record name. No rule produces ``reject``; that outcome is left to a person.
-``unchecked_gap`` cases (line quantity x price, total vs subtotal + tax, dates,
-duplicates) pin an approval that a new rule would have to change.
+``unchecked_gap`` cases (dates, duplicates) pin an approval that a new rule
+would have to change.
 """
 
 from __future__ import annotations
@@ -174,6 +178,8 @@ GOLDEN_TAGS = KNOWN_TAGS | frozenset(
         "no_tax_rate",  # the document states no tax rate
         "blank_field",  # a field present but empty or whitespace only
         "multi_issue",  # several independent discrepancies at once
+        "total_mismatch",  # total is not subtotal + tax
+        "line_amount_mismatch",  # a line amount is not quantity x unit price
         "unchecked_gap",  # a real discrepancy no rule checks yet, so it approves
     }
 )

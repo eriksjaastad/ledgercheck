@@ -20,11 +20,16 @@ Rules (``rule_id`` → severity)
 - ``APR-PO-AMOUNT`` ERROR: the invoice total exceeds the PO's amount. Billing
   less than the PO is partial billing, not a discrepancy. Amounts compare as
   is, so the book must be in the invoice currency.
+- ``APR-LINE-AMOUNT`` ERROR, one per line: a line's stated amount is a cent
+  or more away from its quantity × unit price. A smaller gap is rounding of
+  that product (in any rounding mode) and passes.
 - ``APR-SUBTOTAL`` ERROR: the stated subtotal differs from the sum of the
   stated line-item amounts by any amount.
 - ``APR-TAX-ROUNDING`` WARNING / ``APR-TAX-AMOUNT`` ERROR: the charged tax
   differs from subtotal × stated rate (half-up to the cent) by at most one
   cent / by more. No stated rate means nothing to check here.
+- ``APR-TOTAL`` ERROR: the stated total differs from the stated subtotal plus
+  the charged tax by any amount.
 - Policy hits: passed through with their own severity.
 
 Outcome rubric
@@ -35,12 +40,11 @@ else (no hits, or INFO only) → ``approve``. The rules never ``reject``; that
 is left to a person. ``reasons`` lists ``"<rule_id>: <message>"`` for every
 WARNING and ERROR hit, so an approval has no reasons.
 
-Not checked yet: total vs subtotal + tax, line amount vs quantity × unit
-price, dates (a due date before the invoice date approves), and duplicate
-resubmissions (``duplicate_resubmission`` approves); no current fixture needs
-the first two, and duplicates need cross-run history. The PO-unknown and
-PO-amount rules need a PO book; ``run_pipeline`` and ``ledgercheck serve`` pass
-none, so only golden cases that carry a ``po_book`` exercise them.
+Not checked yet: dates (a due date before the invoice date approves) and
+duplicate resubmissions (``duplicate_resubmission`` approves); duplicates need
+cross-run history. The PO-unknown and PO-amount rules need a PO book;
+``run_pipeline`` and ``ledgercheck serve`` pass none, so only golden cases that
+carry a ``po_book`` exercise them.
 
 Pipeline
 --------
@@ -131,6 +135,23 @@ def rule_po_amount(
     return ()
 
 
+def rule_line_amounts(invoice: Invoice) -> tuple[PolicyHit, ...]:
+    """``APR-LINE-AMOUNT`` ERROR for each line whose amount is not quantity × unit price.
+
+    The product is exact (not rounded), so a gap under one cent is rounding
+    and passes; a cent or more is a discrepancy. Lines are numbered from 1.
+    """
+    return tuple(
+        PolicyHit(
+            "APR-LINE-AMOUNT", Severity.ERROR,
+            f"line {n} amount {li.amount} but {li.quantity} x {li.unit_price} is {product}",
+            field="line_items", expected=str(product), observed=str(li.amount),
+        )
+        for n, li in enumerate(invoice.line_items, 1)
+        if abs(li.amount - (product := li.quantity * li.unit_price)) >= CENT
+    )
+
+
 def rule_subtotal(invoice: Invoice) -> tuple[PolicyHit, ...]:
     """``APR-SUBTOTAL`` ERROR: stated subtotal != sum of line-item amounts.
 
@@ -164,6 +185,23 @@ def rule_tax(invoice: Invoice) -> tuple[PolicyHit, ...]:
         f"tax charged {invoice.tax_amount} but {invoice.tax_rate} on "
         f"{invoice.subtotal} is {expected}",
         field="tax_amount", expected=str(expected), observed=str(invoice.tax_amount),
+    ),)
+
+
+def rule_total(invoice: Invoice) -> tuple[PolicyHit, ...]:
+    """``APR-TOTAL`` ERROR: stated total != stated subtotal + charged tax.
+
+    Exact decimal comparison, like ``rule_subtotal``: both terms are stated to
+    the cent, so any gap is a real discrepancy.
+    """
+    expected = invoice.expected_total()
+    if invoice.total == expected:
+        return ()
+    return (PolicyHit(
+        "APR-TOTAL", Severity.ERROR,
+        f"total {invoice.total} but subtotal {invoice.subtotal} + tax "
+        f"{invoice.tax_amount} is {expected}",
+        field="total", expected=str(expected), observed=str(invoice.total),
     ),)
 
 
@@ -216,8 +254,10 @@ class ApprovalAgent:
         hits = (
             rule_missing_po(invoice)
             + rule_po_amount(invoice, self.po_amounts)
+            + rule_line_amounts(invoice)
             + rule_subtotal(invoice)
             + rule_tax(invoice)
+            + rule_total(invoice)
             + rule_policy_hits(policy)
         )
         return ApprovalDecision(

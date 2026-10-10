@@ -63,13 +63,15 @@ def test_mock_run_flags_correction_and_resume(served):
     form = {"field": "tax_amount", "value": "435.90", "corrected_by": "reviewer", "reason": "typo"}
     status, url, page = request(f"{url}/corrections", form)
     assert status == 200 and url == f"{base}/runs/{run_id}"
-    assert "approve" in page and "435.90" in page and "typo" in page
+    assert "needs_human" in page and "APR-TOTAL" in page and "typo" in page  # total still old
+    form.update(field="total", value="6448.25")
+    status, url, page = request(f"{url}/corrections", form)
+    assert status == 200 and "approve" in page and "6448.25" in page
     record = store.get_run(run_id)
     assert record.status is RunStatus.COMPLETED
-    (correction,) = record.corrections
-    assert (correction.field, correction.new_value, correction.corrected_by) == (
-        "tax_amount", "435.90", "reviewer"
-    )
+    assert [(c.field, c.new_value, c.corrected_by) for c in record.corrections] == [
+        ("tax_amount", "435.90", "reviewer"), ("total", "6448.25", "reviewer")
+    ]
     assert record.steps[-1].output["outcome"] == "approve"
 
 
@@ -142,7 +144,7 @@ def test_failed_resume_keeps_correction_and_another_recovers(served, monkeypatch
     assert (record.status, record.next_stage) == (RunStatus.RUNNING, "policy")
     assert len(record.corrections) == 1
     monkeypatch.undo()
-    status, _, page = request(f"{url}/corrections", form)
+    status, _, page = request(f"{url}/corrections", form | {"field": "total", "value": "6448.25"})
     assert status == 200 and "approve" in page
     assert store.get_run(run_id).status is RunStatus.COMPLETED
     assert "the run stays ``running`` at its next stage" in web.__doc__
