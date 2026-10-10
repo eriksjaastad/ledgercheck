@@ -35,7 +35,7 @@ Where settings come from (first match wins)
 1. The process environment: ``export OPENROUTER_API_KEY=...``, CI secrets,
    ``docker run -e``, or a secrets manager that injects variables, e.g.
    ``doppler run -- ledgercheck judge --live --case <case_id>``.
-2. A ``.env`` file in the working directory: ``KEY=VALUE`` lines, ``#``
+2. An optional ``.env`` file in the working directory: ``KEY=VALUE`` lines, ``#``
    comments, optional ``export`` and quotes. A non-blank variable already in
    the environment wins, and lines it cannot parse are skipped. It must be a
    readable UTF-8 regular file of at most 1 MiB; otherwise
