@@ -36,8 +36,11 @@ Where settings come from (first match wins)
    ``docker run -e``, or a secrets manager that injects variables, e.g.
    ``doppler run -- ledgercheck judge --live --case <case_id>``.
 2. A ``.env`` file in the working directory: ``KEY=VALUE`` lines, ``#``
-   comments, optional ``export`` and quotes. It never overrides a variable
-   that is already set, and lines it cannot parse are skipped.
+   comments, optional ``export`` and quotes. A non-blank variable already in
+   the environment wins, and lines it cannot parse are skipped. It must be a
+   readable UTF-8 regular file of at most 1 MiB; otherwise
+   ``ledgercheck connections`` and live runs exit 2 naming it, while offline
+   runs carry on.
 3. ``connections.local.toml`` in the working directory, or the file named by
    ``LEDGERCHECK_CONNECTIONS_FILE``. It may hold the key as well.
 

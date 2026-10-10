@@ -40,6 +40,9 @@ Install the extra or unset the keys.
 
 Tracer errors are not swallowed: an exception from a tracer propagates out of
 ``run_pipeline``. Tracers never see or change stage outputs.
+
+``LangfuseTracer`` is tested only against a fake SDK, never a real Langfuse
+server.
 """
 
 from __future__ import annotations

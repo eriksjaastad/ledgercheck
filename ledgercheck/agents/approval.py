@@ -38,7 +38,9 @@ WARNING and ERROR hit, so an approval has no reasons.
 Not checked yet: total vs subtotal + tax, line amount vs quantity × unit
 price, dates (a due date before the invoice date approves), and duplicate
 resubmissions (``duplicate_resubmission`` approves); no current fixture needs
-the first two, and duplicates need cross-run history.
+the first two, and duplicates need cross-run history. The PO-unknown and
+PO-amount rules need a PO book; ``run_pipeline`` and ``ledgercheck serve`` pass
+none, so only golden cases that carry a ``po_book`` exercise them.
 
 Pipeline
 --------
