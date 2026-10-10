@@ -143,6 +143,22 @@ def test_failed_resume_keeps_correction_and_another_recovers(served, monkeypatch
     assert "the run stays ``running`` at its next stage" in web.__doc__
 
 
+def test_failed_resume_log_masks_a_key(served, monkeypatch, capsys):
+    base, _ = served
+    url = request(base + "/runs", {"case_id": "tax_mismatch"})[1]
+    fake = "sk-or-v1-" + "f" * 32
+    monkeypatch.setenv("OPENROUTER_API_KEY", fake)
+
+    def broken(*args, **kwargs):
+        raise RuntimeError(f"auth failed with {fake}")
+
+    monkeypatch.setattr(web, "resume_run", broken)
+    form = {"field": "tax_amount", "value": "435.90", "corrected_by": "reviewer"}
+    assert request(f"{url}/corrections", form)[0] == 500
+    err = capsys.readouterr().err
+    assert "resume of" in err and fake not in err
+
+
 def test_bad_run_requests_are_4xx(served):
     base, store = served
     assert request(base + "/runs", {"case_id": "<b>nope</b>"})[0] == 400

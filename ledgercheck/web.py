@@ -326,7 +326,7 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     resume_run(self.app.store, run_id, tracer=self.app.tracer)
                 except Exception as exc:  # the correction is saved; another one retries
-                    self.log_error("resume of %s failed: %r", run_id, exc)
+                    self.log_error("resume of %s failed: %s", run_id, connections.mask_lines(repr(exc)))
                     raise BadRequest(
                         f"correction saved, but resuming the run failed ({type(exc).__name__}); "
                         "the run is left to resume, so submit another correction to retry",
