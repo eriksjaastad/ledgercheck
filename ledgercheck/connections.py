@@ -95,7 +95,6 @@ import stat
 import sys
 import time
 import tomllib
-import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -998,38 +997,35 @@ def _file_state(path: Path) -> str:
     return state
 
 
-def masker(env: Mapping[str, str] | None = None,
-           limit: int = sys.maxsize) -> Callable[[Any], str]:
-    """A function that makes text safe to print: control characters removed, and every
-    secret of the configuration (see ``_secrets``) masked. Resolve it once per command
-    and pass everything that command prints through it."""
+def masker(env: Mapping[str, str] | None = None) -> Callable[[Any], str]:
+    """A function that makes text safe to show: control characters removed, and every
+    secret of the configuration (see ``_secrets``) masked."""
     secrets = _secrets(_Sources(env))
-    return lambda text: _mask(text, secrets, limit)
+    return lambda text: _mask(text, secrets, sys.maxsize)
 
 
-def mask(text: Any, env: Mapping[str, str] | None = None, limit: int = 2000) -> str:
-    """``masker(env, limit)(text)``, for a one-off message."""
-    return masker(env, limit)(text)
+class _MaskedStream:
+    """A text stream that writes through to ``stream`` with every secret masked, line by line."""
+
+    def __init__(self, stream: Any, show: Callable[[Any], str]) -> None:
+        self.stream, self.show = stream, show
+
+    def write(self, text: str) -> int:
+        self.stream.write("\n".join(map(self.show, text.split("\n"))))
+        return len(text)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.stream, name)
 
 
-def mask_lines(text: Any, env: Mapping[str, str] | None = None) -> str:
-    """Multi-line text (a report, a traceback) masked line by line, newlines kept."""
+def mask_output(env: Mapping[str, str] | None = None) -> None:
+    """Pass everything this process prints, tracebacks and server logs included, through
+    ``masker(env)``: the one output boundary every command goes through."""
     show = masker(env)
-    return "\n".join(show(line) for line in str(text).splitlines())
-
-
-def install_masked_excepthook(env: Mapping[str, str] | None = None) -> None:
-    """Make an unexpected crash print a masked traceback (still exit 1)."""
-
-    def hook(kind: type[BaseException], exc: BaseException, tb: Any) -> None:
-        text = "".join(traceback.format_exception(kind, exc, tb))
-        try:
-            shown = mask_lines(text, env)
-        except Exception:  # never fall back to the unmasked text
-            shown = f"ledgercheck: unexpected {kind.__name__} (details withheld)"
-        print(shown, file=sys.stderr)
-
-    sys.excepthook = hook
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name)
+        setattr(sys, name, _MaskedStream(
+            stream.stream if isinstance(stream, _MaskedStream) else stream, show))
 
 
 def describe(env: Mapping[str, str] | None = None) -> list[tuple[str, str, str]]:
@@ -1077,13 +1073,12 @@ def run(args: argparse.Namespace) -> int:
     """Print the resolved settings; exit 2 if a setting is invalid or the configured live
     provider is missing something it needs, else 0."""
     settings = load_settings()
-    for name, value, source in describe():  # already masked
-        print(settings.mask(f"{name:<12} {value:<44} {source}".rstrip()))
+    for name, value, source in describe():
+        print(f"{name:<12} {value:<44} {source}".rstrip())
     for problem in settings.problems:
-        print(settings.mask(f"connections: {problem}"), file=sys.stderr)
+        print(f"connections: {problem}", file=sys.stderr)
     for gap in settings.live_gaps:
-        print(settings.mask(f"connections: provider {settings.provider} needs {gap}"),
-              file=sys.stderr)
+        print(f"connections: provider {settings.provider} needs {gap}", file=sys.stderr)
     return 2 if settings.problems or settings.live_gaps else 0
 
 
@@ -1092,5 +1087,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    install_masked_excepthook()
+    mask_output()
     sys.exit(main())
