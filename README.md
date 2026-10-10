@@ -28,13 +28,13 @@ To connect a model with your own key, see `ledgercheck connections --help`.
 
 ## Docker
 
-Each push to `main` publishes an image to `ghcr.io/eriksjaastad/ledgercheck`. Its default command is `ledgercheck judge`, the offline golden suite, which exits 0 when the suite passes:
+Each push to `main` publishes an image to `ghcr.io/eriksjaastad/ledgercheck`. Its default command is `ledgercheck judge`, the offline golden suite (`ledgercheck judge --help`):
 
 ```bash
 docker run --rm ghcr.io/eriksjaastad/ledgercheck
 docker run --rm ghcr.io/eriksjaastad/ledgercheck --help
 ```
 
-The `Dockerfile` packages the app; `terraform/` is an unapplied Azure reference that nothing provisions.
+Image and deploy details: the `Dockerfile` header and `python3 scripts/deploy.py --help`.
 
 Behavior lives in `--help` and module docstrings. Current limits: [Known issues](ISSUES.md). License: [MIT](LICENSE) — Copyright (c) 2026 Erik Sjaastad.

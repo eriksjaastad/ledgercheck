@@ -2,9 +2,11 @@
 """Deploy helper for Ledger Check. It never deploys.
 
 The Azure Container Apps stack in ``terraform/`` is a write-only reference:
-nothing in this repo applies it. This script only checks it. The Dockerfile is
-different: CI builds the image, smoke-tests it and publishes it to
-``ghcr.io/eriksjaastad/ledgercheck`` from ``main``.
+nothing in this repo applies it. This script only checks it, and CI does not
+run it, so the stack has not been through ``terraform validate`` there. The
+Dockerfile is different: on pull requests and pushes to ``main``, CI builds
+the image and smoke-tests it (the default command and ``--help``); only pushes
+to ``main`` publish it to ``ghcr.io/eriksjaastad/ledgercheck``.
 
 Commands
 --------

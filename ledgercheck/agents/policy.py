@@ -306,8 +306,9 @@ class PolicyCorpus:
 
         An id on the document is authoritative: if it is not on file this is a
         miss even when the name would match, so a wrong id is never papered over.
-        A blank or whitespace-only id counts as no id. A name that normalizes to
-        ``""`` is a miss.
+        A blank or whitespace-only id counts as no id. Any other id is looked up
+        as given, so one with surrounding whitespace is a miss (an unknown
+        vendor). A name that normalizes to ``""`` is a miss.
         """
         if _stated(vendor_id) is not None:
             chunk = self._vendors.get(vendor_id)

@@ -1,11 +1,11 @@
 # Known issues
 
-Current limits of Ledger Check. Details live in the module docstrings and `--help` named below.
+Current limits of Ledger Check. Each one is described next to its code, in the docstring or `--help` named.
 
-- **Runs on the bundled synthetic invoices only.** No command reads an invoice of your own: `ledgercheck serve` and `ledgercheck judge` run the fixture and golden cases shipped in `ledgercheck/fixtures`, picked by case id. Offline intake returns a case's stored JSON invoice as the extraction; for a text-backed case it uses the paired JSON, and the `.txt` is never parsed (`ledgercheck.agents.intake`). From Python, `IntakeAgent(fixtures_root=...)` can load cases in the same fixture format from another directory. Parsing invoice text needs the live client (`IntakeAgent.extract_text`), which is not implemented yet (see the next item). There is no PDF input.
+- **Runs on the bundled synthetic invoices only.** No command reads your own invoices, and there is no PDF input (`ledgercheck.agents.intake`).
 - **Live LLM mode covers the judge only.** Live invoice extraction and policy rerank are not implemented; setup and limits: `ledgercheck connections --help`.
-- **Approval checks are incomplete.** Approval does not yet check total vs subtotal + tax, line amount vs quantity × unit price, dates (a due date before the invoice date approves), or duplicate resubmissions (see `ledgercheck.agents.approval`). The unknown-PO and PO-amount rules need a PO book; `run_pipeline` and `ledgercheck serve` pass none, so only golden cases that carry a `po_book` exercise them.
-- **Padded vendor ids are not matched.** A vendor id with surrounding whitespace is looked up as-is (`PolicyCorpus.find_vendor` in `ledgercheck.agents.policy`), so it is reported as an unknown vendor. Padded PO numbers are stripped and match.
-- **`ledgercheck serve` is local only.** It binds IPv4 loopback addresses (`127.0.0.0/8`) only and has no login (`ledgercheck serve --help`).
-- **Langfuse tracing is untested against a real server.** Tracing is a no-op unless `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set. `LangfuseTracer` has only been tested against a fake SDK in `tests/test_observability.py`, never against a real Langfuse server (`ledgercheck.observability`).
-- **The Azure Terraform stack is an untested reference.** The `Dockerfile` packages the CLI; CI builds the image and smoke-tests it (the default `judge` command and `--help`) on pushes to `main` and on pull requests, and publishes it to `ghcr.io/eriksjaastad/ledgercheck` from `main`. `terraform/` is an unapplied Azure Container Apps reference that nothing in this repo provisions, and it has not been run through `terraform validate` yet (`python3 scripts/deploy.py validate`).
+- **Approval checks are incomplete.** See "Not checked yet" in `ledgercheck.agents.approval`.
+- **Padded vendor ids are not matched.** See `PolicyCorpus.find_vendor` in `ledgercheck.agents.policy`.
+- **`ledgercheck serve` is local only.** Loopback addresses only, no login (`ledgercheck serve --help`).
+- **Langfuse tracing is untested against a real server** (`ledgercheck.observability`).
+- **The Azure Terraform stack is an untested reference** (`python3 scripts/deploy.py --help`).

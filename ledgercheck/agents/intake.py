@@ -9,6 +9,11 @@ JSON invoice *is* the expected extraction; the text is not parsed here.
 ``field_confidence`` and ``warnings`` are left empty: the fixture path reports
 no confidence and finds nothing to warn about.
 
+No command reads an invoice of your own: ``ledgercheck serve`` and
+``ledgercheck judge`` run the packaged fixture and golden cases, picked by case
+id. From Python, ``IntakeAgent(fixtures_root=...)`` loads cases in the same
+format from another directory. There is no PDF input.
+
 Live path (not built)
 ---------------------
 ``IntakeAgent.extract_text`` sends raw text to an LLM client. Without an
