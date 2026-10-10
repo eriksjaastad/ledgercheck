@@ -102,6 +102,7 @@ import urllib.request
 from dataclasses import dataclass, field, fields
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
+from itertools import groupby
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
@@ -187,36 +188,32 @@ def _forms(secrets: Iterable[Any]) -> list[str]:
     return sorted((f for f in forms if f.strip()), key=len, reverse=True)
 
 
-def _token_at(text: str, i: int, form: str) -> bool:
-    """``form`` starts at ``text[i]`` and is not part of a longer alphanumeric word."""
-    end = i + len(form)
-    return (text.startswith(form, i)
-            and (i == 0 or not (text[i - 1].isalnum() and form[0].isalnum()))
-            and (end == len(text) or not (text[end].isalnum() and form[-1].isalnum())))
+def _whole_token(form: str) -> str:
+    """A regex for ``form`` only where it is not part of a longer alphanumeric word."""
+    left = r"(?<![^\W_])" if form[0].isalnum() else ""
+    right = r"(?![^\W_])" if form[-1].isalnum() else ""
+    return left + re.escape(form) + right
 
 
-def _run_at(text: str, i: int, forms: list[str]) -> int:
-    """Length of the secret piece starting at ``text[i]``: a short secret standing as a
-    whole token, or the longest 8+ character run of a long one; 0 if none."""
-    best = 0
+@lru_cache(maxsize=32)
+def _secret_pattern(forms: tuple[str, ...]) -> re.Pattern[str]:
+    """One regex finding, at every position, a short secret as a whole token or any
+    8-character piece of a long one (any longer piece is a chain of these)."""
+    pieces = set()
     for form in forms:
         if len(form) < _MIN_KEY_RUN:
-            if _token_at(text, i, form):
-                best = max(best, len(form))
-            continue
-        n = 0
-        while n < len(form) and i + n < len(text) and text[i:i + n + 1] in form:
-            n += 1
-        if n >= _MIN_KEY_RUN:
-            best = max(best, n)
-    return best
+            pieces.add(_whole_token(form))
+        else:
+            pieces |= {re.escape(form[j:j + _MIN_KEY_RUN])
+                       for j in range(len(form) - _MIN_KEY_RUN + 1)}
+    return re.compile("(?=(" + "|".join(sorted(pieces, key=len, reverse=True)) + "))")
 
 
 def _mask(text: Any, secrets: Iterable[Any], limit: int = MAX_ERROR_CHARS) -> str:
     """THE masking choke point: every string shown to a person or raised in an error
-    passes through here. Control characters become spaces; every secret, and every run of
-    8+ consecutive characters of one, becomes ``[redacted]``; only then is the result cut
-    to ``limit`` characters, so a cut can never leave a piece of a secret behind."""
+    passes through here. Control characters become spaces; every stretch of text made of
+    secret pieces becomes ``[redacted]``; only then is the result cut to ``limit``
+    characters, so a cut can never leave a piece of a secret behind."""
     forms = _forms(secrets)
     text = str(text)
     longest = max(map(len, forms), default=0)
@@ -224,12 +221,12 @@ def _mask(text: Any, secrets: Iterable[Any], limit: int = MAX_ERROR_CHARS) -> st
     if cut:  # nothing past here can reach the first `limit` characters of the output
         text = text[:limit + longest]
     text = _sanitize(text)
-    out, i = [], 0
-    while i < len(text):
-        n = _run_at(text, i, forms) if forms else 0
-        out.append("[redacted]" if n else text[i])
-        i += n or 1
-    text = "".join(out)
+    if forms:
+        hidden = bytearray(len(text))
+        for m in _secret_pattern(tuple(forms)).finditer(text):
+            hidden[m.start():m.start() + len(m.group(1))] = b"\x01" * len(m.group(1))
+        text = "".join("[redacted]" if is_hidden else "".join(c for c, _ in run)
+                       for is_hidden, run in groupby(zip(text, hidden), key=lambda p: p[1]))
     return text[:limit] + "..." if cut or len(text) > limit else text
 
 
