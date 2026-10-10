@@ -28,7 +28,10 @@ Commands
 Model routing (which model tier each LLM task uses, and the rate-limit and
 context-window runbook) is not a command; see ``ledgercheck.agents.routing``.
 
-Running ``ledgercheck`` with no subcommand prints this help and exits 0.
+Running ``ledgercheck`` with no subcommand prints this help and exits 0. An
+unexpected error in any command prints one line naming its type, the command and
+where it was raised (never its message, which may quote a secret) and exits 2;
+Ctrl-C exits 130. ``python -m ledgercheck.<module>`` runs the same commands.
 
 Options
 -------
@@ -42,6 +45,8 @@ from __future__ import annotations
 
 import argparse
 import sys
+import traceback
+from pathlib import Path
 
 from ledgercheck import __version__, beta_notes, connections, web
 from ledgercheck.eval import judge
@@ -73,20 +78,27 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+COMMANDS = {"judge": judge.run, "serve": web.run, "beta-notes": beta_notes.run,
+            "connections": connections.run}
+
+
 def main(argv: list[str] | None = None) -> int:
-    connections.mask_output()  # nothing printed, not even a crash, shows a secret
+    """Run one command with all output masked and exit 2, not a traceback, on any error."""
+    connections.mask_output()  # nothing printed, not even an error line, shows a secret
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.command == "judge":
-        return judge.run(args)
-    if args.command == "serve":
-        return web.run(args)
-    if args.command == "beta-notes":
-        return beta_notes.run(args)
-    if args.command == "connections":
-        return connections.run(args)
-    parser.print_help()
-    return 0
+    if args.command is None:
+        parser.print_help()
+        return 0
+    try:
+        return COMMANDS[args.command](args)
+    except KeyboardInterrupt:
+        return 130
+    except Exception as exc:  # its message may quote a secret: show its type and place only
+        place = traceback.extract_tb(exc.__traceback__)[-1]
+        print(f"ledgercheck {args.command}: unexpected {type(exc).__name__} at "
+              f"{Path(place.filename).name}:{place.lineno}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

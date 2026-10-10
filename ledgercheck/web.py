@@ -350,8 +350,7 @@ def _port(text: str) -> int:
 
 def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.ArgumentParser:
     """Add the serve options to ``parser`` (a new one by default); --help shows the docstring."""
-    if parser is None:
-        parser = argparse.ArgumentParser(prog="python -m ledgercheck.web")
+    parser = parser or argparse.ArgumentParser()
     parser.description = __doc__
     parser.formatter_class = argparse.RawDescriptionHelpFormatter
     parser.add_argument("--host", default=DEFAULT_HOST, help="loopback bind address (127.0.0.0/8)")
@@ -364,6 +363,7 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
 
 def run(args: argparse.Namespace) -> int:
     """Serve until Ctrl-C (exit 0); a refused host or a bind error exits 2."""
+    connections.mask_output()  # also for Python callers
     try:
         server = make_server(connections.run_store(args.runs_dir), args.host, args.port)
     except (ValueError, OverflowError, OSError, LangfuseUnavailable,
@@ -380,10 +380,6 @@ def run(args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    connections.mask_output()
-    return run(build_parser().parse_args(argv))
-
-
 if __name__ == "__main__":
-    sys.exit(main())
+    from ledgercheck import cli
+    sys.exit(cli.main(["serve", *sys.argv[1:]]))

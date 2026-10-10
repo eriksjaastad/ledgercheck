@@ -1006,6 +1006,8 @@ def masker(env: Mapping[str, str] | None = None) -> Callable[[Any], str]:
 class _MaskedStream:
     """A text stream that writes through to ``unmasked`` with every secret masked, line by line."""
 
+    withheld = False  # the masking-failure notice is shown once per stream
+
     def __init__(self, unmasked: Any, show: Callable[[Any], str]) -> None:
         self.unmasked, self.show = unmasked, show
 
@@ -1013,7 +1015,8 @@ class _MaskedStream:
         try:
             shown = "\n".join(map(self.show, text.split("\n")))
         except Exception:  # never fall back to the raw text
-            shown = "ledgercheck: output withheld (masking failed)\n"
+            shown = "" if self.withheld else "ledgercheck: output withheld (masking failed)\n"
+            self.withheld = True
         self.unmasked.write(shown)
         return len(text)
 
@@ -1065,8 +1068,7 @@ def describe(env: Mapping[str, str] | None = None) -> list[tuple[str, str, str]]
 
 def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.ArgumentParser:
     """Add the connections options to ``parser``; --help shows this module's docstring."""
-    if parser is None:
-        parser = argparse.ArgumentParser(prog="python -m ledgercheck.connections")
+    parser = parser or argparse.ArgumentParser()
     parser.description = __doc__
     parser.formatter_class = argparse.RawDescriptionHelpFormatter
     return parser
@@ -1075,6 +1077,7 @@ def build_parser(parser: argparse.ArgumentParser | None = None) -> argparse.Argu
 def run(args: argparse.Namespace) -> int:
     """Print the resolved settings; exit 2 if a setting is invalid or the configured live
     provider is missing something it needs, else 0."""
+    mask_output()  # also for Python callers
     settings = load_settings()
     for name, value, source in describe():
         print(f"{name:<12} {value:<44} {source}".rstrip())
@@ -1085,10 +1088,6 @@ def run(args: argparse.Namespace) -> int:
     return 2 if settings.problems or settings.live_gaps else 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    mask_output()
-    return run(build_parser().parse_args(argv))
-
-
 if __name__ == "__main__":
-    sys.exit(main())
+    from ledgercheck import cli
+    sys.exit(cli.main(["connections", *sys.argv[1:]]))
