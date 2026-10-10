@@ -141,15 +141,16 @@ def rule_line_amounts(invoice: Invoice) -> tuple[PolicyHit, ...]:
     The product is exact (not rounded), so a gap under one cent is rounding
     and passes; a cent or more is a discrepancy. Lines are numbered from 1.
     """
-    return tuple(
-        PolicyHit(
-            "APR-LINE-AMOUNT", Severity.ERROR,
-            f"line {n} amount {li.amount} but {li.quantity} x {li.unit_price} is {product}",
-            field="line_items", expected=str(product), observed=str(li.amount),
-        )
-        for n, li in enumerate(invoice.line_items, 1)
-        if abs(li.amount - (product := li.quantity * li.unit_price)) >= CENT
-    )
+    hits = []
+    for n, li in enumerate(invoice.line_items, 1):
+        product = li.quantity * li.unit_price
+        if abs(li.amount - product) >= CENT:
+            hits.append(PolicyHit(
+                "APR-LINE-AMOUNT", Severity.ERROR,
+                f"line {n} amount {li.amount} but {li.quantity} x {li.unit_price} is {product}",
+                field="line_items", expected=str(product), observed=str(li.amount),
+            ))
+    return tuple(hits)
 
 
 def rule_subtotal(invoice: Invoice) -> tuple[PolicyHit, ...]:
