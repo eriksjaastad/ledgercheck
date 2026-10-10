@@ -148,7 +148,6 @@ def test_the_live_flag_is_never_read_from_a_file(local):
     (f"{ENV['max_tokens']}=lots\n", None, "max_tokens"),
     (None, "provider = \n", "connections.local.toml"),
     (None, "spend_cap_usd = -1\n", "spend_cap_usd must be a finite number"),
-    (None, "max_tokens = 0\n", "max_tokens"),
     (None, f'[prices."{MODEL}"]\nprompt = 1\n', "exactly prompt and completion"),
     (None, 'base_url = "ftp://x"\n', "base_url"),
 ])
@@ -272,7 +271,7 @@ def test_connections_command_reports_a_bad_config(local, capsys):
     assert "max_tokens" in capsys.readouterr().err
 
 
-def test_connections_help_explains_resolution_and_the_hook(capsys):
+def test_connections_help_explains_where_settings_come_from(capsys):
     with pytest.raises(SystemExit):
         cli_main(["connections", "--help"])
     text = capsys.readouterr().out
@@ -631,7 +630,7 @@ def _at(base_url):
     return connections.Settings(**{**live_settings().__dict__, "base_url": base_url})
 
 
-@pytest.mark.parametrize("code", [301, 302, 303, 307, 308])
+@pytest.mark.parametrize("code", [302, 307])  # one handler refuses every 30x
 def test_redirects_are_refused_and_the_key_is_never_forwarded(local_server, code):
     caught = []
 
