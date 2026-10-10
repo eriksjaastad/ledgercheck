@@ -190,11 +190,11 @@ def test_subtotal_agrees_on_clean_invoice():
 
 def test_line_amount_a_cent_off_is_error():
     first, *rest = invoice("clean_baseline").line_items
-    off = dataclasses.replace(first, amount=Decimal("510.01"))
+    off = dataclasses.replace(first, unit_price=Decimal("42.5000"), amount=Decimal("510.01"))
     (hit,) = rule_line_amounts(invoice("clean_baseline", line_items=(off, *rest)))
     assert (hit.rule_id, hit.severity) == ("APR-LINE-AMOUNT", Severity.ERROR)
     assert (hit.expected, hit.observed) == ("510.00", "510.01")
-    assert hit.message.startswith("line 1 amount 510.01 but 12 x 42.50")
+    assert hit.message == "line 1 amount 510.01 but 12 x 42.5000 is 510.00"
 
 
 def test_line_amount_sub_cent_gap_is_rounding():
