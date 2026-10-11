@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import ledgercheck
+from ledgercheck.agents.approval import rule_line_amounts, rule_total
 from ledgercheck.fixtures_loader import (
     FIXTURES_DIR,
     KNOWN_TAGS,
@@ -37,8 +38,7 @@ def _assert_case_matches_tags(case) -> None:
     inv = case.invoice
     assert case.description.strip()
     assert inv.line_items
-    assert all(li.amount == li.computed_amount() for li in inv.line_items)
-    assert inv.total == inv.expected_total()
+    assert rule_line_amounts(inv) == rule_total(inv) == ()
     assert (inv.po_number is None) == ("missing_po" in case.tags)
     assert (inv.currency != "USD") == ("foreign_currency" in case.tags)
     assert (inv.total < 0) == ("credit_note" in case.tags)

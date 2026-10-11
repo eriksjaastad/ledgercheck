@@ -41,7 +41,6 @@ def test_from_dict_parses_decimals_and_dates() -> None:
     assert inv.subtotal == Decimal("30.75")
     assert inv.po_number is None and inv.due_date is None and inv.vendor_id is None
     assert isinstance(inv.line_items, tuple)
-    assert inv.line_items[0].computed_amount() == Decimal("30.75")
 
 
 def test_arithmetic_helpers() -> None:

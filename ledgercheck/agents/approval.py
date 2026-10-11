@@ -66,7 +66,7 @@ latest active policy step's hits instead of re-checking policy.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from types import MappingProxyType
 from typing import Mapping
 
@@ -139,17 +139,20 @@ def rule_line_amounts(invoice: Invoice) -> tuple[PolicyHit, ...]:
     """``APR-LINE-AMOUNT`` ERROR for each line whose amount is not quantity × unit price.
 
     The product is exact (not rounded), so a gap under one cent is rounding
-    and passes; a cent or more is a discrepancy. Lines are numbered from 1.
+    and passes; a cent or more is a discrepancy. The message shows the product
+    half-up to the cent. Lines are numbered from 1.
     """
-    return tuple(
-        PolicyHit(
-            "APR-LINE-AMOUNT", Severity.ERROR,
-            f"line {n} amount {li.amount} but {li.quantity} x {li.unit_price} is {product}",
-            field="line_items", expected=str(product), observed=str(li.amount),
-        )
-        for n, li in enumerate(invoice.line_items, 1)
-        if abs(li.amount - (product := li.quantity * li.unit_price)) >= CENT
-    )
+    hits = []
+    for n, li in enumerate(invoice.line_items, 1):
+        product = li.quantity * li.unit_price
+        if abs(li.amount - product) >= CENT:
+            shown = product.quantize(CENT, ROUND_HALF_UP)
+            hits.append(PolicyHit(
+                "APR-LINE-AMOUNT", Severity.ERROR,
+                f"line {n} amount {li.amount} but {li.quantity} x {li.unit_price} is {shown}",
+                field="line_items", expected=str(shown), observed=str(li.amount),
+            ))
+    return tuple(hits)
 
 
 def rule_subtotal(invoice: Invoice) -> tuple[PolicyHit, ...]:

@@ -156,9 +156,6 @@ class LineItem:
         for name in ("quantity", "unit_price", "amount"):
             object.__setattr__(self, name, _decimal(getattr(self, name), name))
 
-    def computed_amount(self) -> Decimal:
-        return (self.quantity * self.unit_price).quantize(CENT, ROUND_HALF_UP)
-
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> LineItem:
         _check_keys(data, cls, "line item")
