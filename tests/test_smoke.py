@@ -42,7 +42,6 @@ ISSUE_DETAILS = {
     "ledgercheck.agents.intake": ("agents/intake.py", "No command reads an invoice of your own"),
     "ledgercheck connections --help": ("connections.py", "Only the LLM judge"),
     "ledgercheck.agents.approval": ("agents/approval.py", "only golden cases that carry a"),
-    "ledgercheck.agents.policy": ("agents/policy.py", "surrounding whitespace is a miss"),
     "ledgercheck serve --help": ("web.py", "There is no login"),
     "ledgercheck.observability": ("observability.py", "never a real Langfuse server"),
     "python3 scripts/deploy.py --help": ("../scripts/deploy.py", "``terraform validate``"),
