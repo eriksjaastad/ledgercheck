@@ -671,3 +671,9 @@ def test_policy_result_snapshots_retrieved_list():
     result = PolicyResult("run-a", (), ids)  # type: ignore[arg-type]
     ids.append("vendor:V-9999")
     assert result.retrieved == ("vendor:V-1001", "tax:US-TX-STD")
+
+
+def test_padded_vendor_id_matches_by_id(agent):
+    result = agent.check(invoice("clean_baseline", vendor_id=" V-1001 "))
+    assert result.hits == ()
+    assert result.retrieved[0] == "vendor:V-1001"

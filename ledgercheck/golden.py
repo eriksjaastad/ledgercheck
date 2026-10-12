@@ -86,7 +86,7 @@ docstrings is in neither the table nor ``UNREACHABLE_RULES``. So a new case
 means updating the table::
 
     tag      blank_field                   5
-    tag      clean                        10
+    tag      clean                        11
     tag      credit_note                   8
     tag      currency_mismatch             4
     tag      duplicate_candidate           2
@@ -125,7 +125,7 @@ means updating the table::
     rule     POL-VENDOR-NAME (error)       3
     rule     POL-VENDOR-NO-ID (info)       4
     rule     POL-VENDOR-UNKNOWN (error)    5
-    outcome  approve                      29
+    outcome  approve                      30
     outcome  flag                         14
     outcome  needs_human                  31
 

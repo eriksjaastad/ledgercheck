@@ -21,9 +21,9 @@ the empty string (e.g. ``"Inc."`` or ``"&"``).
 
 Retrieval
 ---------
-``PolicyCorpus.find_vendor`` looks a vendor up by exact ``vendor_id`` when the
-document states one, and by normalized name against the name and aliases
-only when it does not. ``normalize_name`` applies NFKC and case folding, reads
+``PolicyCorpus.find_vendor`` looks a vendor up by ``vendor_id`` (surrounding
+whitespace stripped) when the document states one, and by normalized name
+against the name and aliases only when it does not. ``normalize_name`` applies NFKC and case folding, reads
 ``&`` as ``and``, deletes periods and apostrophes inside a word (so
 ``L.L.C.`` is ``llc`` and ``O'Neil`` is ``oneil``), splits on every other
 non-alphanumeric character, drops ``and`` and then strips trailing legal
@@ -192,8 +192,8 @@ def _stated(value: str | None) -> str | None:
     """``value`` without leading or trailing whitespace, or ``None`` when it is
     missing, empty or whitespace only.
 
-    Stripped so a padded PO number (``" PO-4500-1282 "``) matches its PO-book
-    key exactly; inner whitespace and case are kept, so ``"PO 4500-1282"`` or
+    Stripped so a padded PO number (``" PO-4500-1282 "``) or vendor id matches
+    its key exactly; inner whitespace and case are kept, so ``"PO 4500-1282"`` or
     ``"po-4500-1282"`` still miss the book.
     """
     if value is None:
@@ -307,11 +307,13 @@ class PolicyCorpus:
         An id on the document is authoritative: if it is not on file this is a
         miss even when the name would match, so a wrong id is never papered over.
         A blank or whitespace-only id counts as no id. Any other id is looked up
-        as given, so one with surrounding whitespace is a miss (an unknown
-        vendor). A name that normalizes to ``""`` is a miss.
+        with surrounding whitespace stripped, so ``" V-1001 "`` is ``V-1001``;
+        inner whitespace and case are kept. A name that normalizes to ``""`` is
+        a miss.
         """
-        if _stated(vendor_id) is not None:
-            chunk = self._vendors.get(vendor_id)
+        stated = _stated(vendor_id)
+        if stated is not None:
+            chunk = self._vendors.get(stated)
             return (chunk, "id") if chunk is not None else (None, "")
         wanted = normalize_name(name)
         if not wanted:
