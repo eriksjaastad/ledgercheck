@@ -23,7 +23,8 @@ Retrieval
 ---------
 ``PolicyCorpus.find_vendor`` looks a vendor up by ``vendor_id`` (surrounding
 whitespace stripped) when the document states one, and by normalized name
-against the name and aliases only when it does not. ``normalize_name`` applies NFKC and case folding, reads
+against the name and aliases only when it does not. ``normalize_name``
+applies NFKC and case folding, reads
 ``&`` as ``and``, deletes periods and apostrophes inside a word (so
 ``L.L.C.`` is ``llc`` and ``O'Neil`` is ``oneil``), splits on every other
 non-alphanumeric character, drops ``and`` and then strips trailing legal
