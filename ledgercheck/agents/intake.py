@@ -14,13 +14,20 @@ No command reads an invoice of your own: ``ledgercheck serve`` and
 id. From Python, ``IntakeAgent(fixtures_root=...)`` loads cases in the same
 format from another directory. There is no PDF input.
 
-Live path (not built)
----------------------
+Live path (text only, never run live)
+-------------------------------------
 ``IntakeAgent.extract_text`` sends raw text to an LLM client. Without an
 injected client it builds ``llm_client.LLMClient``, which runs the spend gate
 in ``ledgercheck.connections`` and raises ``LiveLLMDisabled`` unless live calls
-are explicitly enabled; past the gate, extraction is not implemented yet. So
-the default configuration never spends tokens.
+are explicitly enabled, so the default configuration never spends tokens.
+Past the gate it is built and tested offline against a fake server only. No
+command calls it; from Python, with the gate's env set (spends money, up to
+the spend cap)::
+
+    agent = IntakeAgent(llm_client=LLMClient())
+    case = load_case(FIXTURES_DIR / "european_format_text.json")
+    result = agent.extract_text(case.raw_text, source=case.case_id)
+    result.invoice == case.invoice  # the expected extraction
 
 Recording on a run
 ------------------
@@ -122,7 +129,8 @@ class IntakeAgent:
 
         Raises ``LiveLLMDisabled`` when no client was injected and live
         extraction is not enabled. Fields the client returns must pass
-        ``Invoice.from_dict``.
+        ``Invoice.from_dict``; a live reply with no JSON object raises
+        ``ValueError``.
         """
         client = self._llm_client if self._llm_client is not None else LLMClient()
         invoice = Invoice.from_dict(client.extract_invoice(text))

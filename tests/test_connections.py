@@ -1189,7 +1189,8 @@ def test_an_unknown_provider_fails_validation_but_not_the_offline_default(monkey
     (LIVE_TOML, True, None),
     (LIVE_TOML, False, "needs an API key"),
     ('provider = "openrouter"\n', True, "needs a spend cap"),
-    ('provider = "openrouter"\n', True, "needs a large model id"),
+    ('provider = "openrouter"\n', True, "needs a model id"),
+    (LIVE_TOML.replace("large =", "small ="), True, None),  # extraction only: no large model
     (LIVE_TOML.replace("[models]\n", '[models]\nsmall = "vendor/small-x"\n'), True,
      "needs a price for model small (vendor/small-x)"),
 ])
@@ -1445,6 +1446,6 @@ def test_live_mode_limits_live_in_the_help_not_in_issues(capsys):
     with pytest.raises(SystemExit):
         cli_main(["connections", "--help"])
     text = " ".join(capsys.readouterr().out.split())
-    for moved in ("Only the LLM judge", "not implemented", "usage.cost", "fake server",
+    for moved in ("intake text extraction", "not implemented", "usage.cost", "fake server",
                   "only as accurate as the prices", "no built-in model ids or prices"):
         assert moved in text

@@ -275,7 +275,7 @@ def test_connections_is_the_only_production_router_construction():
         "connections.py": ["OpenRouterTransport", "MockRouter", "OpenRouterTransport",
                            "OpenRouterRouter"],
     }
-    assert "connections.router()``" in DOC and "the only production caller is ``LiveJudge``" in DOC
+    assert "connections.router()``" in DOC and "(intake text extraction)" in DOC
 
 
 def test_docstring_names_env_vars_and_runbook_sections():

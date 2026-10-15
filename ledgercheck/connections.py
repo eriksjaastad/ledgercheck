@@ -66,8 +66,9 @@ honouring ``Retry-After`` (capped at 30 s); the fallback model and
 context-window handling are designed but not built (runbook in
 ``ledgercheck.agents.routing``).
 
-Only the LLM judge (``ledgercheck judge --live``) uses a live model today; live
-invoice extraction and policy rerank are not implemented
+The LLM judge (``ledgercheck judge --live``) and intake text extraction
+(``IntakeAgent.extract_text``, not wired into any command, never run live) use
+a live model; policy rerank is not implemented
 (``ledgercheck.agents.llm_client``). The OpenRouter transport follows the
 documented chat-completions API (cost from the response's ``usage.cost``), but
 the test suite exercises it only against a fake server.
@@ -483,9 +484,9 @@ def _live_gaps(provider: str, key: str | None, cap_given: bool,
         gaps.append(f"an API key: {_WHERE_KEY}")
     if not cap_given:
         gaps.append("a spend cap: set LEDGERCHECK_SPEND_CAP_USD or spend_cap_usd")
-    if "large" not in models:
-        gaps.append("a large model id (the judge uses it): set LEDGERCHECK_MODEL_LARGE or "
-                    "[models] large")
+    if not models:  # a tier a task needs but lacks is refused at use, before any request
+        gaps.append("a model id: set LEDGERCHECK_MODEL_SMALL (intake extraction) and/or "
+                    "LEDGERCHECK_MODEL_LARGE (the judge), or [models] small / large")
     gaps += [f'a price for model {tier} ({model}): add [prices."{model}"] prompt and completion '
              "(USD per million tokens)" for tier, model in models.items() if model not in prices]
     return gaps

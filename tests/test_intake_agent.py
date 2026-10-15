@@ -1,10 +1,13 @@
 """IntakeAgent: fixture extraction, the live-LLM gate, and RunStore recording."""
 
+import json
 import socket
 from decimal import Decimal
 
 import pytest
+from test_connections import FakeOpener, completion
 
+from ledgercheck import connections
 from ledgercheck.agents import IntakeAgent, record_intake
 from ledgercheck.agents.llm_client import (
     API_KEY_ENV,
@@ -12,6 +15,7 @@ from ledgercheck.agents.llm_client import (
     LiveLLMDisabled,
     LLMClient,
 )
+from ledgercheck.connections import ConnectionConfigError
 from ledgercheck.fixtures_loader import FIXTURES_DIR, load_case, load_cases
 from ledgercheck.models import ExtractionResult, to_jsonable
 from ledgercheck.run_store import RunStatus, RunStore, Stage
@@ -156,14 +160,46 @@ def test_enabled_client_constructs_and_makes_no_request(no_network):
     env = {ENV_FLAG: "1", API_KEY_ENV: "fake-not-a-real-key"}
     client = LLMClient(env)
     assert client.name == "openrouter"
-    with pytest.raises(NotImplementedError):
+
+
+FAKE_KEY = "fake-not-a-real-key"
+SMALL = "vendor/small-x"
+
+
+def live_client(monkeypatch, reply):
+    """A gated ``LLMClient`` whose router posts to a fake opener replying ``reply``."""
+    connections.DEFAULT_CONFIG.write_text(
+        f'provider = "openrouter"\nspend_cap_usd = 0.05\nmax_tokens = 100\n'
+        f'[models]\nsmall = "{SMALL}"\n[prices."{SMALL}"]\nprompt = 1.0\ncompletion = 2.0\n',
+        encoding="utf-8")
+    monkeypatch.setenv(ENV_FLAG, "1")
+    monkeypatch.setenv(API_KEY_ENV, FAKE_KEY)
+    opener = FakeOpener(completion(reply, prompt_tokens=900, completion_tokens=40))
+    return LLMClient(router=connections.router(opener=opener)), opener
+
+
+def test_extract_text_live_parses_the_model_reply(monkeypatch, no_network):
+    case = load_case(FIXTURES_DIR / "european_format_text.json")
+    reply = f"```json\n{json.dumps(to_jsonable(case.invoice))}\n```"
+    client, opener = live_client(monkeypatch, reply)
+    result = IntakeAgent(llm_client=client).extract_text(case.raw_text, source=case.case_id)
+    assert result.invoice == case.invoice and result.extractor == "openrouter"
+    [request] = opener.requests
+    body = json.loads(request.data)
+    assert body["model"] == SMALL and case.raw_text in body["messages"][0]["content"]
+    assert request.get_header("Authorization") == f"Bearer {FAKE_KEY}"
+
+
+def test_extract_invoice_refuses_a_reply_without_a_json_object(monkeypatch, no_network):
+    client, _ = live_client(monkeypatch, "I could not read this invoice.")
+    with pytest.raises(ValueError, match="no JSON object in the model reply"):
         client.extract_invoice("Invoice INV-1 total 10.00")
 
 
-def test_extract_text_with_enabled_client_makes_no_request(no_network):
-    client = LLMClient({ENV_FLAG: "1", API_KEY_ENV: "fake-not-a-real-key"})
-    with pytest.raises(NotImplementedError):
-        IntakeAgent(llm_client=client).extract_text("Invoice INV-1", source="doc")
+def test_extract_invoice_refuses_the_mock_provider_before_any_request(no_network):
+    client = LLMClient({ENV_FLAG: "1", API_KEY_ENV: FAKE_KEY})  # passes the gate, provider mock
+    with pytest.raises(ConnectionConfigError, match="needs provider openrouter"):
+        client.extract_invoice("Invoice INV-1 total 10.00")
 
 
 def test_extract_text_blocked_by_default(agent, monkeypatch):

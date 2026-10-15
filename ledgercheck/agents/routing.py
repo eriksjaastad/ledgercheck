@@ -21,9 +21,9 @@ Routers
 -------
 ``connections.router()`` builds the router for the configured provider:
 ``MockRouter`` for ``mock`` (the default) and ``OpenRouterRouter`` for
-``openrouter``. It is the only place that constructs one. No pipeline stage
-calls a router yet; the only production caller is ``LiveJudge``
-(``ledgercheck judge --live``).
+``openrouter``. It is the only place that constructs one. The production
+callers are ``LiveJudge`` (``ledgercheck judge --live``) and ``LLMClient``
+(intake text extraction).
 
 ``MockRouter`` is the offline router. It records each call and returns a canned
 reply (``""`` unless one is given).

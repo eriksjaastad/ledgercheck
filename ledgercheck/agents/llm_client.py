@@ -1,4 +1,4 @@
-"""Live extraction and rerank client. Behind the spend gate; not implemented yet.
+"""Live extraction and rerank client, behind the spend gate. Rerank is not built yet.
 
 ``LLMClient`` is what intake (``IntakeAgent.extract_text``) and the policy
 reranker use when no client is injected. Constructing one runs the spend gate
@@ -8,42 +8,78 @@ non-blank (from the environment, ``.env`` or ``connections.local.toml``),
 naming what is missing. Any other flag value (``"true"``, ``"0"``, unset)
 counts as off.
 
-Past the gate, ``extract_invoice`` and ``rerank`` raise
-``NotImplementedError`` without any request: parsing invoice text and
-reranking with a model are not built yet. The live path that is built is the
-LLM judge (``ledgercheck judge --live``, see ``ledgercheck.eval.judge``).
-Tests inject fakes (an ``IntakeAgent`` client, a ``PolicyAgent`` reranker)
-instead of enabling the flag.
+Past the gate, ``extract_invoice`` sends one request to the router's small-tier
+model through ``connections.router()``, so it needs provider ``openrouter``, a
+small-tier model id with prices and a spend cap (see
+``ledgercheck connections --help``). It is tested only against a fake server.
+``rerank`` raises ``NotImplementedError`` without any request. Tests inject
+fakes (an ``IntakeAgent`` client, a ``PolicyAgent`` reranker, or a router over
+a fake opener) instead of enabling the flag.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any, Mapping, Sequence
 
-from ledgercheck.connections import API_KEY_ENV, ENV_FLAG, LiveLLMDisabled, require_live
+from ledgercheck import connections
+from ledgercheck.agents.routing import ModelRouter, TaskKind
+from ledgercheck.connections import (
+    API_KEY_ENV,
+    ENV_FLAG,
+    ConnectionConfigError,
+    LiveLLMDisabled,
+    require_live,
+)
 
 __all__ = ["API_KEY_ENV", "ENV_FLAG", "LLMClient", "LiveLLMDisabled"]
+
+EXTRACT_PROMPT = (
+    "Extract the invoice below. Reply with only one JSON object with keys "
+    "invoice_number, vendor_name, invoice_date (YYYY-MM-DD), currency (3-letter ISO code), "
+    "line_items (a list of objects with description, quantity, unit_price, amount, sku), "
+    "subtotal, tax_amount, total, and, only when the document states them, vendor_id, "
+    "po_number, tax_rate, due_date (YYYY-MM-DD). Write numbers as plain decimal strings "
+    'with "." as the decimal separator, no thousands separators or currency symbols; '
+    "credit notes are negative. Copy values as written: never compute or guess a missing "
+    "value, omit it (sku: null).\n\n"
+)
 
 
 class LLMClient:
     """Live LLM client (extraction and rerank); constructing one is the spend gate.
 
     ``env`` is passed to ``connections.require_live``: the process environment
-    and local files by default, or exactly the given mapping. The key stays in
-    ``connections`` and is never logged or echoed in errors.
+    and local files by default, or exactly the given mapping. ``router``
+    defaults to ``connections.router(env)``. The key stays in ``connections``
+    and is never logged or echoed in errors.
     """
 
     name = "openrouter"
 
-    def __init__(self, env: Mapping[str, str] | None = None) -> None:
+    def __init__(self, env: Mapping[str, str] | None = None, *,
+                 router: ModelRouter | None = None) -> None:
         require_live(env)
+        self._router = connections.router(env) if router is None else router
 
     def extract_invoice(self, text: str) -> Mapping[str, Any]:
         """Return invoice fields in ``Invoice.from_dict`` shape for ``text``.
 
-        Not implemented yet: raises ``NotImplementedError`` without any request.
+        One request to the extraction model. The reply's JSON object is the
+        text from its first ``{`` to its last ``}``, so a fenced reply still
+        parses. Raises ``ValueError`` when there is no JSON object or it does
+        not parse; nothing is retried. Raises ``ConnectionConfigError``, before
+        any request, while the provider is still ``mock``.
         """
-        raise NotImplementedError("live LLM extraction is not implemented yet")
+        if self._router.name == "mock":  # the gate passes on flag and key alone
+            raise ConnectionConfigError(
+                "live extraction needs provider openrouter (now 'mock'): set "
+                "LEDGERCHECK_LLM_PROVIDER=openrouter or provider in connections.local.toml")
+        reply = self._router.complete(TaskKind.EXTRACTION, EXTRACT_PROMPT + text)
+        start, end = reply.find("{"), reply.rfind("}")
+        if not 0 <= start < end:
+            raise ValueError("no JSON object in the model reply")
+        return json.loads(reply[start:end + 1])
 
     def rerank(self, query: str, candidates: Sequence[str]) -> Sequence[str]:
         """Return ``candidates`` (policy chunk ids) reordered by relevance to ``query``.
