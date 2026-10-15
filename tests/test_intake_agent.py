@@ -15,6 +15,7 @@ from ledgercheck.agents.llm_client import (
     LiveLLMDisabled,
     LLMClient,
 )
+from ledgercheck.connections import ConnectionConfigError
 from ledgercheck.fixtures_loader import FIXTURES_DIR, load_case, load_cases
 from ledgercheck.models import ExtractionResult, to_jsonable
 from ledgercheck.run_store import RunStatus, RunStore, Stage
@@ -192,6 +193,12 @@ def test_extract_text_live_parses_the_model_reply(monkeypatch, no_network):
 def test_extract_invoice_refuses_a_reply_without_a_json_object(monkeypatch, no_network):
     client, _ = live_client(monkeypatch, "I could not read this invoice.")
     with pytest.raises(ValueError, match="no JSON object in the model reply"):
+        client.extract_invoice("Invoice INV-1 total 10.00")
+
+
+def test_extract_invoice_refuses_the_mock_provider_before_any_request(no_network):
+    client = LLMClient({ENV_FLAG: "1", API_KEY_ENV: FAKE_KEY})  # passes the gate, provider mock
+    with pytest.raises(ConnectionConfigError, match="needs provider openrouter"):
         client.extract_invoice("Invoice INV-1 total 10.00")
 
 

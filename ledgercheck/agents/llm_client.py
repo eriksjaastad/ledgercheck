@@ -24,7 +24,13 @@ from typing import Any, Mapping, Sequence
 
 from ledgercheck import connections
 from ledgercheck.agents.routing import ModelRouter, TaskKind
-from ledgercheck.connections import API_KEY_ENV, ENV_FLAG, LiveLLMDisabled, require_live
+from ledgercheck.connections import (
+    API_KEY_ENV,
+    ENV_FLAG,
+    ConnectionConfigError,
+    LiveLLMDisabled,
+    require_live,
+)
 
 __all__ = ["API_KEY_ENV", "ENV_FLAG", "LLMClient", "LiveLLMDisabled"]
 
@@ -62,8 +68,13 @@ class LLMClient:
         One request to the extraction model. The reply's JSON object is the
         text from its first ``{`` to its last ``}``, so a fenced reply still
         parses. Raises ``ValueError`` when there is no JSON object or it does
-        not parse; nothing is retried.
+        not parse; nothing is retried. Raises ``ConnectionConfigError``, before
+        any request, while the provider is still ``mock``.
         """
+        if self._router.name == "mock":  # the gate passes on flag and key alone
+            raise ConnectionConfigError(
+                "live extraction needs provider openrouter (now 'mock'): set "
+                "LEDGERCHECK_LLM_PROVIDER=openrouter or provider in connections.local.toml")
         reply = self._router.complete(TaskKind.EXTRACTION, EXTRACT_PROMPT + text)
         start, end = reply.find("{"), reply.rfind("}")
         if not 0 <= start < end:

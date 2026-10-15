@@ -129,7 +129,8 @@ class IntakeAgent:
 
         Raises ``LiveLLMDisabled`` when no client was injected and live
         extraction is not enabled. Fields the client returns must pass
-        ``Invoice.from_dict``.
+        ``Invoice.from_dict``; a live reply with no JSON object raises
+        ``ValueError``.
         """
         client = self._llm_client if self._llm_client is not None else LLMClient()
         invoice = Invoice.from_dict(client.extract_invoice(text))
