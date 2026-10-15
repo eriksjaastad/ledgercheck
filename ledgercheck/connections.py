@@ -484,9 +484,9 @@ def _live_gaps(provider: str, key: str | None, cap_given: bool,
         gaps.append(f"an API key: {_WHERE_KEY}")
     if not cap_given:
         gaps.append("a spend cap: set LEDGERCHECK_SPEND_CAP_USD or spend_cap_usd")
-    if "large" not in models:
-        gaps.append("a large model id (the judge uses it): set LEDGERCHECK_MODEL_LARGE or "
-                    "[models] large")
+    if not models:  # a tier a task needs but lacks is refused at use, before any request
+        gaps.append("a model id: set LEDGERCHECK_MODEL_SMALL (intake extraction) and/or "
+                    "LEDGERCHECK_MODEL_LARGE (the judge), or [models] small / large")
     gaps += [f'a price for model {tier} ({model}): add [prices."{model}"] prompt and completion '
              "(USD per million tokens)" for tier, model in models.items() if model not in prices]
     return gaps
