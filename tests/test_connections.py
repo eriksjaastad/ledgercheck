@@ -1445,6 +1445,6 @@ def test_live_mode_limits_live_in_the_help_not_in_issues(capsys):
     with pytest.raises(SystemExit):
         cli_main(["connections", "--help"])
     text = " ".join(capsys.readouterr().out.split())
-    for moved in ("Only the LLM judge", "not implemented", "usage.cost", "fake server",
+    for moved in ("intake text extraction", "not implemented", "usage.cost", "fake server",
                   "only as accurate as the prices", "no built-in model ids or prices"):
         assert moved in text

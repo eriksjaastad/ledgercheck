@@ -66,8 +66,9 @@ honouring ``Retry-After`` (capped at 30 s); the fallback model and
 context-window handling are designed but not built (runbook in
 ``ledgercheck.agents.routing``).
 
-Only the LLM judge (``ledgercheck judge --live``) uses a live model today; live
-invoice extraction and policy rerank are not implemented
+The LLM judge (``ledgercheck judge --live``) and intake text extraction
+(``IntakeAgent.extract_text``, not wired into any command, never run live) use
+a live model; policy rerank is not implemented
 (``ledgercheck.agents.llm_client``). The OpenRouter transport follows the
 documented chat-completions API (cost from the response's ``usage.cost``), but
 the test suite exercises it only against a fake server.
