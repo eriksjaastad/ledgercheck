@@ -66,3 +66,12 @@ def test_image_logs_in_and_pushes_only_on_push_to_main() -> None:
     assert MAIN_PUSH_ONLY in login and "password: ${{ secrets.GITHUB_TOKEN }}" in login
     assert MAIN_PUSH_ONLY in _step(text, "docker push")
     assert text.count("docker push") == 1 and "push: true" not in text
+
+
+def test_ci_validates_terraform_and_never_plans_or_applies() -> None:
+    text = _text("ci.yml")
+    job = text.split("\n  terraform:\n", 1)[1]
+    assert "uses: hashicorp/setup-terraform@" in job
+    assert "run: python3 scripts/deploy.py validate\n" in job
+    for banned in ("terraform apply", "terraform plan", "deploy.py apply"):
+        assert banned not in text

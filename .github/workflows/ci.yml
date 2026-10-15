@@ -55,3 +55,18 @@ jobs:
           name: judge-report
           path: judge-report.json
           if-no-files-found: warn
+
+  # terraform/ is a write-only reference: CI validates it (no backend, no Azure credentials)
+  # and never plans or applies it.
+  terraform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform validate
+        run: python3 scripts/deploy.py validate
