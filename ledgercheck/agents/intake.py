@@ -9,10 +9,9 @@ JSON invoice *is* the expected extraction; the text is not parsed here.
 ``field_confidence`` and ``warnings`` are left empty: the fixture path reports
 no confidence and finds nothing to warn about.
 
-No command reads an invoice of your own: ``ledgercheck serve`` and
-``ledgercheck judge`` run the packaged fixture and golden cases, picked by case
-id. From Python, ``IntakeAgent(fixtures_root=...)`` loads cases in the same
-format from another directory. There is no PDF input.
+``ledgercheck serve`` and ``ledgercheck judge`` run the packaged fixture and
+golden cases, picked by case id. From Python, ``IntakeAgent(fixtures_root=...)``
+loads cases in the same format from another directory.
 
 Live path (text only, never run live)
 -------------------------------------
@@ -20,14 +19,22 @@ Live path (text only, never run live)
 injected client it builds ``llm_client.LLMClient``, which runs the spend gate
 in ``ledgercheck.connections`` and raises ``LiveLLMDisabled`` unless live calls
 are explicitly enabled, so the default configuration never spends tokens.
-Past the gate it is built and tested offline against a fake server only. No
-command calls it; from Python, with the gate's env set (spends money, up to
-the spend cap)::
+Past the gate it is built and tested offline against a fake server only.
+``ledgercheck run-pdf`` calls it through ``extract_pdf``; from Python, with the
+gate's env set (spends money, up to the spend cap)::
 
     agent = IntakeAgent(llm_client=LLMClient())
     case = load_case(FIXTURES_DIR / "european_format_text.json")
     result = agent.extract_text(case.raw_text, source=case.case_id)
     result.invoice == case.invoice  # the expected extraction
+
+PDF input (text layer, then the live path)
+------------------------------------------
+``IntakeAgent.extract_pdf(path)`` reads the PDF's text layer locally
+(``ledgercheck.pdf_text``: no OCR, scans and encrypted files are refused) and
+hands it to ``extract_text`` with ``source=<file name>``, never the directory.
+``PdfIntake(directory, agent)`` is the same step in ``run_pipeline``'s shape,
+for a file name in ``directory``; ``ledgercheck run-pdf`` uses it.
 
 Recording on a run
 ------------------
@@ -52,6 +59,7 @@ from typing import Any, Mapping, Protocol
 from ledgercheck.agents.llm_client import LLMClient
 from ledgercheck.fixtures_loader import FIXTURES_DIR, FixtureCase, load_case
 from ledgercheck.models import ExtractionResult, Invoice
+from ledgercheck.pdf_text import read_pdf_text
 from ledgercheck.run_store import RunNotFound, RunRecord, RunStore, Stage
 
 
@@ -59,6 +67,12 @@ class ExtractionClient(Protocol):
     name: str
 
     def extract_invoice(self, text: str) -> Mapping[str, Any]: ...
+
+
+class Intake(Protocol):
+    """What ``run_pipeline`` needs from its intake stage."""
+
+    def extract(self, case: Any, *, run_id: str | None = None) -> ExtractionResult: ...
 
 
 def _is_bare_stem(case_id: str) -> bool:
@@ -84,8 +98,8 @@ class IntakeAgent:
     """Produces ``ExtractionResult`` objects for the intake stage.
 
     ``fixtures_root`` is where case ids are looked up (the packaged fixtures by
-    default). ``llm_client`` is used by ``extract_text`` only; leave it ``None``
-    to go through the env-flag gate.
+    default). ``llm_client`` is used by ``extract_text`` (and so ``extract_pdf``)
+    only; leave it ``None`` to go through the env-flag gate.
     """
 
     def __init__(
@@ -140,6 +154,29 @@ class IntakeAgent:
             source=source,
             extractor=client.name,
         )
+
+    def extract_pdf(
+        self, path: str | os.PathLike[str], *, run_id: str | None = None
+    ) -> ExtractionResult:
+        """Extract the text layer of PDF ``path`` with ``extract_text``; ``source`` is its name.
+
+        Raises ``PdfTextError`` for a file without a readable text layer,
+        before the gate is reached; then as ``extract_text``.
+        """
+        pdf = Path(path)
+        return self.extract_text(read_pdf_text(pdf), source=pdf.name, run_id=run_id)
+
+
+class PdfIntake:
+    """``run_pipeline``'s intake for PDF files in ``directory``, by file name."""
+
+    def __init__(self, directory: str | os.PathLike[str], agent: IntakeAgent) -> None:
+        self.directory = Path(directory)
+        self.agent = agent
+
+    def extract(self, case: str, *, run_id: str | None = None) -> ExtractionResult:
+        """``agent.extract_pdf`` on the file named ``case`` in ``directory``."""
+        return self.agent.extract_pdf(self.directory / case, run_id=run_id)
 
 
 def record_intake(store: RunStore, result: ExtractionResult) -> RunRecord:

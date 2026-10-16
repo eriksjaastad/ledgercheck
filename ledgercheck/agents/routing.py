@@ -74,8 +74,8 @@ Planned:
   fail closed to ``needs_human`` with the reason.
 - Record it in the ``context_errors`` field of ``ledgercheck beta-notes``.
 
-Not used: LiteLLM, the openai SDK and httpx. ``dependencies`` stays empty; the
-transport uses ``urllib`` from the standard library.
+Not used: LiteLLM, the openai SDK and httpx; the transport uses ``urllib``
+from the standard library.
 """
 
 from __future__ import annotations

@@ -67,7 +67,7 @@ context-window handling are designed but not built (runbook in
 ``ledgercheck.agents.routing``).
 
 The LLM judge (``ledgercheck judge --live``) and intake text extraction
-(``IntakeAgent.extract_text``, not wired into any command, never run live) use
+(``IntakeAgent.extract_text``, behind ``ledgercheck run-pdf``, never run live) use
 a live model; policy rerank is not implemented
 (``ledgercheck.agents.llm_client``). The OpenRouter transport follows the
 documented chat-completions API (cost from the response's ``usage.cost``), but

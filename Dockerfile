@@ -11,7 +11,7 @@
 #     docker run --rm ledgercheck:dev --help          # any other subcommand
 #
 # Two stages: "build" turns the source tree into a wheel; the runtime stage
-# installs only that wheel. The package has no runtime dependencies. The
+# installs that wheel and its one runtime dependency, pypdf, from PyPI. The
 # optional ``langfuse`` extra is left out unless you build with
 # ``--build-arg WITH_LANGFUSE=1``; LANGFUSE_* keys set without the SDK make
 # tracing fail at start (ledgercheck/observability.py).

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from ledgercheck import __version__, beta_notes, connections, web
+from ledgercheck import __version__, beta_notes, connections, run_pdf, web
 from ledgercheck.cli import COMMANDS, main
 from ledgercheck.eval import judge
 
@@ -25,13 +25,15 @@ def _fail(*args, **kwargs):
 
 # one internal function per command, patched to fail as a bug or a broken dependency would
 FAILURES = {"judge": (judge, "select_cases"), "serve": (web, "make_server"),
-            "beta-notes": (beta_notes, "template"), "connections": (connections, "load_settings")}
+            "beta-notes": (beta_notes, "template"), "connections": (connections, "load_settings"),
+            "run-pdf": (run_pdf, "read_pdf_text")}
+ARGS = {"run-pdf": ["--text-only", "invoice.pdf"]}  # required arguments, where a command has any
 
 
 @pytest.mark.parametrize("command", COMMANDS)  # a new command without a FAILURES entry fails
 def test_unexpected_error_exits_2_without_a_traceback(command, monkeypatch, capsys) -> None:
     monkeypatch.setattr(*FAILURES[command], _fail)
-    assert main([command]) == 2
+    assert main([command, *ARGS.get(command, [])]) == 2
     out, err = capsys.readouterr()
     assert "Traceback" not in out + err and "SECRET" not in out + err
     assert err.startswith(f"ledgercheck {command}: unexpected RuntimeError at ")
@@ -39,7 +41,7 @@ def test_unexpected_error_exits_2_without_a_traceback(command, monkeypatch, caps
 
 # Each known issue is one short line naming the docstring or --help that holds its details.
 ISSUE_DETAILS = {
-    "ledgercheck.agents.intake": ("agents/intake.py", "No command reads an invoice of your own"),
+    "ledgercheck run-pdf --help": ("run_pdf.py", "OCR is not supported"),
     "ledgercheck connections --help": ("connections.py", "intake text extraction"),
     "ledgercheck.agents.approval": ("agents/approval.py", "only golden cases that carry a"),
     "ledgercheck serve --help": ("web.py", "There is no login"),

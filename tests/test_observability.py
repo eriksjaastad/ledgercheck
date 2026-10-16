@@ -254,6 +254,6 @@ def test_docstring_env_vars_and_extra_match_the_code():
     doc = observability.__doc__ or ""
     assert set(re.findall(r"LANGFUSE_[A-Z_]+", doc)) == {PUBLIC_KEY_ENV, SECRET_KEY_ENV, HOST_ENV}
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
-    assert project["dependencies"] == []
+    assert [re.split(r"[^\w.-]", r)[0] for r in project["dependencies"]] == ["pypdf"]
     assert any(r.startswith("langfuse") for r in project["optional-dependencies"]["langfuse"])
     assert "pip install 'ledgercheck[langfuse]'" in doc
