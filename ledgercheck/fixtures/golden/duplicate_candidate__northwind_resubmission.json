@@ -1,11 +1,14 @@
 {
   "case_id": "duplicate_candidate__northwind_resubmission",
-  "description": "Baseline resubmitted with the number's hyphens dropped; approves because duplicates are not checked yet.",
+  "description": "Baseline INV-NW-20417 resubmitted as INVNW20417 (hyphens dropped, a week later): the same vendor and number once normalized, so a duplicate.",
   "tags": [
     "duplicate_candidate"
   ],
   "input": {
-    "fixture": "duplicate_resubmission"
+    "fixture": "duplicate_resubmission",
+    "history": [
+      "clean_baseline"
+    ]
   },
   "expected": {
     "extraction": {
@@ -52,8 +55,16 @@
       "hits": []
     },
     "approval": {
-      "outcome": "approve",
-      "hits": []
+      "outcome": "needs_human",
+      "hits": [
+        {
+          "rule_id": "APR-DUPLICATE",
+          "severity": "error",
+          "field": "invoice_number",
+          "expected": null,
+          "observed": "INVNW20417"
+        }
+      ]
     }
   }
 }
