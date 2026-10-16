@@ -3,8 +3,8 @@
 What it reads
 -------------
 Only the PDF's text layer, read locally with pypdf (``ledgercheck.pdf_text``).
-A scanned invoice has no text layer and is refused: OCR is not supported. An
-encrypted PDF is refused too; it is never decrypted.
+A PDF with any page that has no text layer (a scan) is refused: OCR is not
+supported. An encrypted PDF is refused too; it is never decrypted.
 
 ``--text-only``
     Print the text layer to stdout and exit. Fully offline: no model, no spend

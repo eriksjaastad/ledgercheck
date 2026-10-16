@@ -75,7 +75,7 @@ def test_read_pdf_text_round_trips_a_text_fixture(invoice_pdf):
 
 
 @pytest.mark.parametrize("content, message", [
-    (blank_pdf(), "no text layer (probably a scan); OCR is not supported"),
+    (blank_pdf(), "page 1 has no text layer (probably a scan); OCR is not supported"),
     (blank_pdf(password="secret"), "encrypted PDF"),
     (b"Invoice INV-1 total 10.00", "not a readable PDF"),
     (None, "cannot read the file"),
@@ -87,6 +87,15 @@ def test_read_pdf_text_refuses_with_the_file_name_only(tmp_path, content, messag
     with pytest.raises(PdfTextError, match=re.escape(message)) as refused:
         read_pdf_text(path)
     assert str(refused.value).startswith("invoice.pdf: ") and str(tmp_path) not in str(refused.value)
+
+
+def test_read_pdf_text_refuses_one_scanned_page_among_text_pages(tmp_path):
+    writer = PdfWriter(clone_from=io.BytesIO(text_pdf(TEXT.splitlines())))
+    writer.add_blank_page(612, 842)
+    path = tmp_path / "invoice.pdf"
+    writer.write(path)
+    with pytest.raises(PdfTextError, match="invoice.pdf: page 2 has no text layer"):
+        read_pdf_text(path)
 
 
 def test_text_only_prints_the_text_layer_and_stores_nothing(invoice_pdf, tmp_path, capsys):

@@ -2,7 +2,7 @@
 
 Current limits of Ledger Check. Each one is described next to its code, in the docstring or `--help` named.
 
-- **Your own invoices: text-layer PDFs only, via live extraction.** Scans are refused (no OCR); only `--text-only` runs offline (`ledgercheck run-pdf --help`).
+- **Your own invoices: PDF with a text layer only.** Described in `ledgercheck run-pdf --help`.
 - **Live LLM mode covers the judge and intake text extraction**, which was never run live. Policy rerank is not implemented; setup and limits: `ledgercheck connections --help`.
 - **Approval checks are incomplete.** See "Not checked yet" in `ledgercheck.agents.approval`.
 - **`ledgercheck serve` is local only.** Loopback addresses only, no login (`ledgercheck serve --help`).
