@@ -20,6 +20,9 @@ from ledgercheck.agents import (
 )
 from ledgercheck.agents.approval import (
     decide_outcome,
+    normalize_invoice_number,
+    prior_invoices,
+    rule_duplicate,
     rule_line_amounts,
     rule_missing_po,
     rule_po_amount,
@@ -38,7 +41,7 @@ from ledgercheck.run_store import RunNotFound, RunStatus, RunStore, Stage
 EXPECTED = {
     "clean_baseline": (Outcome.APPROVE, []),
     "credit_note": (Outcome.APPROVE, ["APR-PO-MISSING"]),  # INFO for a credit note
-    "duplicate_resubmission": (Outcome.APPROVE, []),  # duplicates not checked yet
+    "duplicate_resubmission": (Outcome.APPROVE, []),  # no prior invoices, nothing to duplicate
     "european_format_text": (Outcome.APPROVE, []),
     "gbp_cloud_services": (Outcome.APPROVE, []),
     "missing_po": (Outcome.FLAG, ["APR-PO-MISSING", "POL-PO-REQUIRED"]),
@@ -231,6 +234,73 @@ def test_tax_two_cents_off_is_error():
 def test_tax_without_stated_rate_is_not_checked():
     assert rule_tax(invoice("tax_mismatch", tax_rate=None)) == ()
     assert rule_tax(invoice("clean_baseline")) == ()
+
+
+def test_invoice_number_ignores_punctuation_case_and_width():
+    forms = ["INV-NW-20417", "inv nw 20417", "INVNW20417", "ＩＮＶ－ＮＷ－２０４１７"]
+    assert {normalize_invoice_number(f) for f in forms} == {"invnw20417"}
+
+
+def test_duplicate_matches_same_vendor_and_number():
+    (hit,) = rule_duplicate(invoice("duplicate_resubmission"), [invoice("clean_baseline")])
+    assert (hit.rule_id, hit.severity, hit.field, hit.observed) == (
+        "APR-DUPLICATE", Severity.ERROR, "invoice_number", "INVNW20417"
+    )
+
+
+def test_duplicate_vendor_is_the_id_else_the_normalized_name():
+    renamed = invoice("clean_baseline", vendor_name="Someone Else")
+    assert ids(rule_duplicate(invoice("duplicate_resubmission"), [renamed])) == ["APR-DUPLICATE"]
+    by_name = invoice("clean_baseline", vendor_id=None)
+    variant = invoice("duplicate_resubmission", vendor_id=" ", vendor_name="NORTHWIND OFFICE SUPPLY LLC")
+    assert ids(rule_duplicate(variant, [by_name])) == ["APR-DUPLICATE"]
+    assert rule_duplicate(invoice("duplicate_resubmission"), [by_name]) == ()  # known limit
+
+
+@pytest.mark.parametrize("changes", [{"vendor_id": "V-2002"}, {"invoice_number": "INV-NW-20418"}])
+def test_duplicate_needs_both_vendor_and_number(changes):
+    assert rule_duplicate(invoice("duplicate_resubmission"), [invoice("clean_baseline", **changes)]) == ()
+
+
+@pytest.mark.parametrize("changes", [{"invoice_number": "--"}, {"vendor_id": None, "vendor_name": "LLC"}])
+def test_duplicate_never_matches_an_empty_key(changes):
+    blank = invoice("clean_baseline", **changes)
+    assert rule_duplicate(blank, [blank]) == ()
+
+
+def test_prior_invoices_keeps_only_earlier_runs_with_an_extraction(store):
+    run_pipeline("clean_baseline", store=store, run_id="run-a")
+    store.start_run("rounding", run_id="run-b")
+    run_pipeline("missing_po", store=store, run_id="run-c")
+    run_pipeline("clean_baseline", store=store, run_id="run-d")
+    assert prior_invoices(store, before_run_id="run-d") == (
+        invoice("clean_baseline"), invoice("missing_po"))
+    assert prior_invoices(store, before_run_id="run-a") == ()
+    assert len(prior_invoices(store)) == 3
+
+
+def test_resume_of_an_earlier_run_ignores_a_later_duplicate(store):
+    run_pipeline("clean_baseline", store=store, run_id="run-a")
+    run_pipeline("duplicate_resubmission", store=store, run_id="run-b")
+    store.apply_correction("run-a", "po_number", "PO-4500-1182", corrected_by="reviewer")
+    result = resume_run(store, "run-a", prior=prior_invoices(store, before_run_id="run-a"))
+    assert result.decision.hits == ()
+
+
+def test_pipeline_flags_duplicate_of_a_stored_run(store):
+    run_pipeline("clean_baseline", store=store, run_id="run-1")
+    result = run_pipeline("duplicate_resubmission", store=store, run_id="run-2",
+                          prior=prior_invoices(store))
+    assert result.decision.outcome is Outcome.NEEDS_HUMAN
+    assert ids(result.decision.hits) == ["APR-DUPLICATE"]
+    assert store.get_run("run-2").status is RunStatus.NEEDS_HUMAN
+
+
+def test_resume_with_store_history_does_not_match_itself(store):
+    run_pipeline("duplicate_resubmission", store=store, run_id="run-d")
+    store.apply_correction("run-d", "po_number", "PO-4500-1182", corrected_by="reviewer")
+    result = resume_run(store, "run-d", prior=prior_invoices(store, before_run_id="run-d"))
+    assert result.decision.outcome is Outcome.APPROVE and result.decision.hits == ()
 
 
 def hit(severity, rule_id="POL-X"):

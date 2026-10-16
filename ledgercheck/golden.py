@@ -36,6 +36,10 @@ JSON keys (all required, no others allowed)
     ``<case_id>.txt``). Optionally ``"po_book"``:
     ``{"<PO number>": "<amount>"}`` handed to ``ApprovalAgent(po_amounts=...)``;
     without it the PO amount rule is off (``null`` is an error, not "no book").
+    Optionally ``"history"``: a list of the invoices already seen before this
+    one, each an invoice fixture case id or an ``Invoice.from_dict`` object,
+    handed to the pipeline as ``prior`` for the duplicate rule; without it
+    there is nothing to be a duplicate of.
 ``expected``
     ``extraction``: the complete invoice intake must return, in
     ``Invoice.from_dict`` shape: every required header field and every line
@@ -71,9 +75,9 @@ through ``PolicyResult`` and the approval block through ``ApprovalDecision``
 Running a case
 --------------
 ``run_case(case)`` sends it through ``run_pipeline`` offline (fixture intake,
-no reranking, the case's PO book). ``pinned(hits)`` blanks hit messages,
-leaving what the expectations pin, and ``codes(hits)`` reduces hits to
-``(rule_id, severity)`` pairs for quick checks.
+no reranking, the case's PO book and history). ``pinned(hits)`` blanks hit
+messages, leaving what the expectations pin, and ``codes(hits)`` reduces hits
+to ``(rule_id, severity)`` pairs for quick checks.
 
 Coverage matrix
 ---------------
@@ -102,12 +106,13 @@ means updating the table::
     tag      tax_mismatch                 11
     tag      tax_rate_mismatch             6
     tag      total_mismatch                1
-    tag      unchecked_gap                 2
+    tag      unchecked_gap                 1
     tag      unknown_po                    3
     tag      unknown_vendor                5
     tag      vendor_alias                  8
     tag      vendor_mismatch               3
     tag      weird_formatting              8
+    rule     APR-DUPLICATE (error)         2
     rule     APR-LINE-AMOUNT (error)       1
     rule     APR-PO-AMOUNT (error)         4
     rule     APR-PO-MISSING (info)         4
@@ -125,14 +130,14 @@ means updating the table::
     rule     POL-VENDOR-NAME (error)       3
     rule     POL-VENDOR-NO-ID (info)       4
     rule     POL-VENDOR-UNKNOWN (error)    5
-    outcome  approve                      30
+    outcome  approve                      28
     outcome  flag                         14
-    outcome  needs_human                  31
+    outcome  needs_human                  33
 
 No case can fire these with the shipped corpus (``UNREACHABLE_RULES``):
 ``POL-VENDOR-ALIAS``, because every corpus alias normalizes to its vendor's
 record name. No rule produces ``reject``; that outcome is left to a person.
-``unchecked_gap`` cases (dates, duplicates) pin an approval that a new rule
+``unchecked_gap`` cases (dates) pin an approval that a new rule
 would have to change.
 """
 
@@ -235,6 +240,7 @@ class GoldenCase:
     fixture: FixtureCase  # the input; ``case_id`` is this golden case's id
     source_fixture: str | None  # the reused invoice fixture case id, if any
     po_book: Mapping[str, Decimal] | None
+    history: tuple[Invoice, ...]  # invoices seen before this one, for the duplicate rule
     expected_extraction: Invoice  # the complete invoice intake must return
     expected_policy: PolicyResult
     expected_decision: ApprovalDecision
@@ -281,21 +287,23 @@ def _line_items(raw: Mapping[str, Any], where: str) -> None:
         _require(isinstance(raw["line_items"], list), where, "line_items must be a list")
 
 
+def _fixture(ref: Any, where: str, fixtures_root: Path) -> FixtureCase:
+    _require(isinstance(ref, str) and re.fullmatch(r"[a-z0-9_]+", ref) is not None
+             and (fixtures_root / f"{ref}.json").is_file(), where, f"no fixture case {ref!r}")
+    return load_case(fixtures_root / f"{ref}.json")
+
+
 def _input(data: Any, path: Path, fixtures_root: Path) -> tuple[Invoice, str | None, str | None]:
     """The input invoice, source text and reused fixture id."""
     where = f"{path.name}: input"
-    _keys(data, set(), where, {"fixture", "invoice", "po_book"})
+    _keys(data, set(), where, {"fixture", "invoice", "po_book", "history"})
     _require(("fixture" in data) != ("invoice" in data), where,
              "needs exactly one of 'fixture' or 'invoice'")
     text_path = path.with_suffix(".txt")
     if "fixture" in data:
         _require(not text_path.exists(), where, f"{text_path.name} with a fixture reference")
-        ref = data["fixture"]
-        _require(isinstance(ref, str) and re.fullmatch(r"[a-z0-9_]+", ref) is not None
-                 and (fixtures_root / f"{ref}.json").is_file(), where,
-                 f"no fixture case {ref!r}")
-        source = load_case(fixtures_root / f"{ref}.json")
-        return source.invoice, source.raw_text, ref
+        source = _fixture(data["fixture"], where, fixtures_root)
+        return source.invoice, source.raw_text, data["fixture"]
     if isinstance(data["invoice"], dict):
         _line_items(data["invoice"], f"{where}.invoice")
     invoice = Invoice.from_dict(data["invoice"])
@@ -310,6 +318,20 @@ def _po_book(data: Mapping[str, Any], where: str) -> Mapping[str, Decimal] | Non
     _require(isinstance(raw, dict) and all(isinstance(k, str) for k in raw), where,
              "po_book must be an object of PO number -> amount")
     return MappingProxyType({po: _decimal(amount, f"po_book[{po!r}]") for po, amount in raw.items()})
+
+
+def _history(data: Mapping[str, Any], where: str, fixtures_root: Path) -> tuple[Invoice, ...]:
+    where = f"{where}.history"
+    raw = data.get("history", [])
+    _require(isinstance(raw, list), where, "history must be a list")
+    invoices = []
+    for i, item in enumerate(raw):
+        if isinstance(item, dict):
+            _line_items(item, f"{where}[{i}]")
+            invoices.append(Invoice.from_dict(item))
+        else:
+            invoices.append(_fixture(item, f"{where}[{i}]", fixtures_root).invoice)
+    return tuple(invoices)
 
 
 def _extraction(raw: Any, where: str) -> Invoice:
@@ -351,6 +373,7 @@ def load_golden_case(path: Path, *, fixtures_root: Path = FIXTURES_DIR) -> Golde
     try:
         invoice, raw_text, ref = _input(data["input"], path, fixtures_root)
         po_book = _po_book(data["input"], f"{path.name}: input")
+        history = _history(data["input"], f"{path.name}: input", fixtures_root)
         extraction = _extraction(expected["extraction"], f"{path.name}: expected")
         _require(isinstance(policy["retrieved"], list), f"{path.name}: expected.policy.retrieved",
                  "retrieved must be a list")
@@ -379,6 +402,7 @@ def load_golden_case(path: Path, *, fixtures_root: Path = FIXTURES_DIR) -> Golde
         fixture=FixtureCase(case_id, data["description"], tags, invoice, path, raw_text),
         source_fixture=ref,
         po_book=po_book,
+        history=history,
         expected_extraction=extraction,
         expected_policy=expected_policy,
         expected_decision=decision,
@@ -406,16 +430,16 @@ def load_golden_cases(
 
 
 def run_case(case: GoldenCase, **kwargs: Any) -> PipelineResult:
-    """Run ``case`` through ``run_pipeline`` offline with its PO book.
+    """Run ``case`` through ``run_pipeline`` offline with its PO book and history.
 
     Extra keyword arguments (``store``, ``run_id``, ...) pass through. A
     ``policy`` or ``approval`` that is absent or ``None`` defaults to
     ``PolicyAgent(rerank=False)`` or ``ApprovalAgent(po_amounts=case.po_book)``;
     the defaults are only built when needed, so a supplied agent never loads
-    the default policy corpus.
+    the default policy corpus. ``case.history`` is passed as ``prior``.
     """
     if kwargs.get("policy") is None:
         kwargs["policy"] = PolicyAgent(rerank=False)
     if kwargs.get("approval") is None:
         kwargs["approval"] = ApprovalAgent(po_amounts=case.po_book)
-    return run_pipeline(case.fixture, **kwargs)
+    return run_pipeline(case.fixture, prior=case.history, **kwargs)

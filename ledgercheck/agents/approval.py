@@ -1,13 +1,13 @@
 """Approval stage: turn an extraction plus its policy result into a decision.
 
 Every check is a plain, deterministic function of the invoice (and, for the
-PO amount, of a purchase-order book), returning ``PolicyHit`` objects. The
-approval rules check the document against itself; the policy stage has
-already checked it against the vendor and tax-code records, and its hits are
-carried into the decision unchanged. So one discrepancy can show up twice,
-once per viewpoint: ``tax_mismatch`` has both ``APR-TAX-AMOUNT`` (charged tax
-vs the document's own stated rate) and ``POL-TAX-AMOUNT`` (vs the vendor's
-tax code).
+PO amount, of a purchase-order book; for duplicates, of earlier invoices),
+returning ``PolicyHit`` objects. The approval rules check the document
+against itself; the policy stage has already checked it against the vendor
+and tax-code records, and its hits are carried into the decision unchanged.
+So one discrepancy can show up twice, once per viewpoint: ``tax_mismatch``
+has both ``APR-TAX-AMOUNT`` (charged tax vs the document's own stated rate)
+and ``POL-TAX-AMOUNT`` (vs the vendor's tax code).
 
 Rules (``rule_id`` → severity)
 ------------------------------
@@ -30,6 +30,9 @@ Rules (``rule_id`` → severity)
   cent / by more. No stated rate means nothing to check here.
 - ``APR-TOTAL`` ERROR: the stated total differs from the stated subtotal plus
   the charged tax by any amount.
+- ``APR-DUPLICATE`` ERROR: an earlier invoice has the same vendor and invoice
+  number (see ``duplicate_key``). Only checked against the earlier invoices a
+  caller supplies; with none, nothing to check.
 - Policy hits: passed through with their own severity.
 
 Outcome rubric
@@ -40,11 +43,14 @@ else (no hits, or INFO only) → ``approve``. The rules never ``reject``; that
 is left to a person. ``reasons`` lists ``"<rule_id>: <message>"`` for every
 WARNING and ERROR hit, so an approval has no reasons.
 
-Not checked yet: dates (a due date before the invoice date approves) and
-duplicate resubmissions (``duplicate_resubmission`` approves); duplicates need
-cross-run history. The PO-unknown and PO-amount rules need a PO book;
-``run_pipeline`` and ``ledgercheck serve`` pass none, so only golden cases that
-carry a ``po_book`` exercise them.
+Not checked yet: dates (a due date before the invoice date approves). The
+PO-unknown and PO-amount rules need a PO book; ``run_pipeline`` and
+``ledgercheck serve`` pass none, so only golden cases that carry a ``po_book``
+exercise them. Likewise the duplicate rule needs earlier invoices:
+``run_pipeline`` and ``resume_run`` check against their ``prior`` argument
+(none by default; ``prior_invoices(store, before_run_id=...)`` gives a run
+store's history) and ``ledgercheck serve`` passes none, so a lone
+``duplicate_resubmission`` approves.
 
 Pipeline
 --------
@@ -65,14 +71,21 @@ latest active policy step's hits instead of re-checking policy.
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from types import MappingProxyType
-from typing import Mapping
+from typing import Iterable, Mapping
 
 from ledgercheck import connections
 from ledgercheck.agents.intake import IntakeAgent, record_intake
-from ledgercheck.agents.policy import PolicyAgent, PolicyResult, _stated, record_policy
+from ledgercheck.agents.policy import (
+    PolicyAgent,
+    PolicyResult,
+    _stated,
+    normalize_name,
+    record_policy,
+)
 from ledgercheck.fixtures_loader import FixtureCase
 from ledgercheck.models import (
     CENT,
@@ -208,6 +221,69 @@ def rule_total(invoice: Invoice) -> tuple[PolicyHit, ...]:
     ),)
 
 
+def normalize_invoice_number(number: str) -> str:
+    """``number`` after Unicode NFKC and case folding, with only its letters and digits kept."""
+    return "".join(c for c in unicodedata.normalize("NFKC", number).casefold() if c.isalnum())
+
+
+def duplicate_key(invoice: Invoice) -> tuple[str, str, str] | None:
+    """The ``(vendor kind, vendor, invoice number)`` that two duplicates share, or ``None``.
+
+    The vendor is keyed the way the policy stage identifies it: by the stated
+    ``vendor_id`` (whitespace stripped, see ``policy._stated``) when the
+    document has one, otherwise by ``normalize_name(vendor_name)``. The number
+    goes through ``normalize_invoice_number``, so ``"INV-NW-20417"``,
+    ``"inv nw 20417"`` and ``"INVNW20417"`` agree. ``None`` (never a
+    duplicate) when the name or the number normalizes to ``""``.
+
+    Known limit: an invoice with a vendor id and one without never share a
+    key, even from the same vendor.
+    """
+    number = normalize_invoice_number(invoice.invoice_number)
+    vendor_id = _stated(invoice.vendor_id)
+    if vendor_id is not None:
+        kind, vendor = "id", vendor_id
+    else:
+        kind, vendor = "name", normalize_name(invoice.vendor_name)
+    if not number or not vendor:
+        return None
+    return kind, vendor, number
+
+
+def rule_duplicate(invoice: Invoice, prior: Iterable[Invoice]) -> tuple[PolicyHit, ...]:
+    """``APR-DUPLICATE`` ERROR: an invoice in ``prior`` has the same ``duplicate_key``.
+
+    ``prior`` holds the invoices seen before this one; with none, nothing to
+    check. One hit however many earlier invoices match.
+    """
+    key = duplicate_key(invoice)
+    if key is None or all(duplicate_key(p) != key for p in prior):
+        return ()
+    return (PolicyHit(
+        "APR-DUPLICATE", Severity.ERROR,
+        f"invoice number {invoice.invoice_number} matches an earlier invoice from the same vendor",
+        field="invoice_number", observed=invoice.invoice_number,
+    ),)
+
+
+def prior_invoices(store: RunStore, *, before_run_id: str | None = None) -> tuple[Invoice, ...]:
+    """The current extracted invoice of every run in ``store`` created before ``before_run_id``.
+
+    ``before_run_id`` is the run being decided: it and every run created after
+    it are left out, so it never matches itself and resuming an earlier run
+    never matches one made later. ``None`` (a run not in the store yet) keeps
+    every run. Runs with nothing extracted yet are skipped; every other status
+    counts.
+    """
+    earlier = []
+    for run in store.list_runs():
+        if run.run_id == before_run_id:
+            break
+        if (invoice := run.invoice()) is not None:
+            earlier.append(invoice)
+    return tuple(earlier)
+
+
 def rule_policy_hits(policy: PolicyResult) -> tuple[PolicyHit, ...]:
     """The policy stage's hits, unchanged; an ERROR among them escalates."""
     return policy.hits
@@ -242,12 +318,14 @@ class ApprovalAgent:
         policy: PolicyResult,
         *,
         run_id: str | None = None,
+        prior: Iterable[Invoice] = (),
     ) -> ApprovalDecision:
         """Decide on ``subject`` given its ``policy`` result.
 
         The run id comes from ``run_id``, the extraction and ``policy.run_id``;
         those given must agree and at least one must be given, otherwise
-        ``ValueError``.
+        ``ValueError``. ``prior`` is the invoices seen before, for the
+        duplicate rule; empty by default, which skips it.
         """
         invoice = subject.invoice if isinstance(subject, ExtractionResult) else subject
         extracted = subject.run_id if isinstance(subject, ExtractionResult) else None
@@ -261,6 +339,7 @@ class ApprovalAgent:
             + rule_subtotal(invoice)
             + rule_tax(invoice)
             + rule_total(invoice)
+            + rule_duplicate(invoice, prior)
             + rule_policy_hits(policy)
         )
         return ApprovalDecision(
@@ -304,6 +383,7 @@ def run_pipeline(
     policy: PolicyAgent | None = None,
     approval: ApprovalAgent | None = None,
     tracer: Tracer | None = None,
+    prior: Iterable[Invoice] = (),
 ) -> PipelineResult:
     """Run intake → policy → approval on fixture ``case_id``, offline.
 
@@ -313,7 +393,9 @@ def run_pipeline(
     Defaults: ``IntakeAgent()`` (fixture path), ``PolicyAgent(rerank=False)``
     (whatever the env flag says) and ``ApprovalAgent()`` (no PO book). With a
     ``store`` each step is recorded as soon as it is produced, so a failure
-    leaves the run at the failed stage.
+    leaves the run at the failed stage. ``prior`` (default none) is the
+    invoices seen before, for the duplicate rule; for a store's history pass
+    ``prior_invoices(store)``, read before this run starts.
 
     ``tracer`` defaults to ``connections.tracer()``: ``NullTracer`` (nothing
     recorded or sent) unless Langfuse keys are set. The run is one trace with
@@ -336,7 +418,7 @@ def run_pipeline(
             if store is not None:
                 record_policy(store, extraction.run_id, checked)
         with trace.span(Stage.APPROVAL.value):
-            decision = approval.decide(extraction, checked)
+            decision = approval.decide(extraction, checked, prior=prior)
             record = None if store is None else record_approval(store, extraction.run_id, decision)
         trace.annotate(outcome=decision.outcome.value)
     return PipelineResult(extraction, checked, decision, record)
@@ -354,6 +436,7 @@ def resume_run(
     policy: PolicyAgent | None = None,
     approval: ApprovalAgent | None = None,
     tracer: Tracer | None = None,
+    prior: Iterable[Invoice] = (),
 ) -> PipelineResult:
     """Run the remaining stages of stored run ``run_id`` from its ``next_stage``.
 
@@ -363,8 +446,10 @@ def resume_run(
     ``approval``: rebuild the ``PolicyResult`` from the latest active policy
     step, then decide. Each new step is recorded with the ``record_*``
     helpers. A run with nothing left to run, or still awaiting intake, raises
-    ``ValueError``; an unknown run raises ``RunNotFound``. Defaults and
-    tracing match ``run_pipeline``; the trace carries ``resumed_from``.
+    ``ValueError``; an unknown run raises ``RunNotFound``. Defaults, ``prior``
+    and tracing match ``run_pipeline``; the trace carries ``resumed_from``. For
+    the store's history pass ``prior_invoices(store, before_run_id=run_id)``,
+    so the run is not a duplicate of itself.
     """
     record = store.get_run(run_id)
     stage, invoice = record.next_stage, record.invoice()
@@ -394,7 +479,7 @@ def resume_run(
                 out.get("reranker"),
             )
         with trace.span(Stage.APPROVAL.value):
-            decision = approval.decide(extraction, checked)
+            decision = approval.decide(extraction, checked, prior=prior)
             final = record_approval(store, run_id, decision)
         trace.annotate(outcome=decision.outcome.value)
     return PipelineResult(extraction, checked, decision, final)

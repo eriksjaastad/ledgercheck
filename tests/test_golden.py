@@ -317,6 +317,13 @@ SHAPE = {
                      "input: po_book must be an object of PO number -> amount"),
     "input line_items an object": (lambda d: d["input"]["invoice"].update(line_items={}),
                                    "input.invoice: line_items must be a list"),
+    "history not a list": (lambda d: d["input"].update(history="clean_baseline"),
+                           "input.history: history must be a list"),
+    "history unknown fixture": (lambda d: d["input"].update(history=["nope"]),
+                                "input.history[0]: no fixture case 'nope'"),
+    "history line_items an object": (
+        lambda d: d["input"].update(history=[{**d["input"]["invoice"], "line_items": {}}]),
+        "input.history[0]: line_items must be a list"),
     "extraction line_items an object": (
         lambda d: d["expected"]["extraction"].update(line_items={}),
         "expected.extraction: line_items must be a list"),
