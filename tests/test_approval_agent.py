@@ -268,17 +268,29 @@ def test_duplicate_never_matches_an_empty_key(changes):
     assert rule_duplicate(blank, [blank]) == ()
 
 
-def test_prior_invoices_skips_the_run_and_runs_not_extracted(store):
+def test_prior_invoices_keeps_only_earlier_runs_with_an_extraction(store):
     run_pipeline("clean_baseline", store=store, run_id="run-a")
-    run_pipeline("missing_po", store=store, run_id="run-b")
-    store.start_run("rounding", run_id="run-c")
-    assert prior_invoices(store, exclude_run_id="run-a") == (invoice("missing_po"),)
+    store.start_run("rounding", run_id="run-b")
+    run_pipeline("missing_po", store=store, run_id="run-c")
+    run_pipeline("clean_baseline", store=store, run_id="run-d")
+    assert prior_invoices(store, before_run_id="run-d") == (
+        invoice("clean_baseline"), invoice("missing_po"))
+    assert prior_invoices(store, before_run_id="run-a") == ()
+    assert len(prior_invoices(store)) == 3
+
+
+def test_resume_of_an_earlier_run_ignores_a_later_duplicate(store):
+    run_pipeline("clean_baseline", store=store, run_id="run-a")
+    run_pipeline("duplicate_resubmission", store=store, run_id="run-b")
+    store.apply_correction("run-a", "po_number", "PO-4500-1182", corrected_by="reviewer")
+    result = resume_run(store, "run-a", prior=prior_invoices(store, before_run_id="run-a"))
+    assert result.decision.hits == ()
 
 
 def test_pipeline_flags_duplicate_of_a_stored_run(store):
     run_pipeline("clean_baseline", store=store, run_id="run-1")
     result = run_pipeline("duplicate_resubmission", store=store, run_id="run-2",
-                          prior=prior_invoices(store, exclude_run_id=None))
+                          prior=prior_invoices(store))
     assert result.decision.outcome is Outcome.NEEDS_HUMAN
     assert ids(result.decision.hits) == ["APR-DUPLICATE"]
     assert store.get_run("run-2").status is RunStatus.NEEDS_HUMAN
@@ -287,7 +299,7 @@ def test_pipeline_flags_duplicate_of_a_stored_run(store):
 def test_resume_with_store_history_does_not_match_itself(store):
     run_pipeline("duplicate_resubmission", store=store, run_id="run-d")
     store.apply_correction("run-d", "po_number", "PO-4500-1182", corrected_by="reviewer")
-    result = resume_run(store, "run-d", prior=prior_invoices(store, exclude_run_id="run-d"))
+    result = resume_run(store, "run-d", prior=prior_invoices(store, before_run_id="run-d"))
     assert result.decision.outcome is Outcome.APPROVE and result.decision.hits == ()
 
 

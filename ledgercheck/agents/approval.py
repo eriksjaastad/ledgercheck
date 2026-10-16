@@ -48,7 +48,7 @@ PO-unknown and PO-amount rules need a PO book; ``run_pipeline`` and
 ``ledgercheck serve`` pass none, so only golden cases that carry a ``po_book``
 exercise them. Likewise the duplicate rule needs earlier invoices:
 ``run_pipeline`` and ``resume_run`` check against their ``prior`` argument
-(none by default; ``prior_invoices(store, exclude_run_id=...)`` gives a run
+(none by default; ``prior_invoices(store, before_run_id=...)`` gives a run
 store's history) and ``ledgercheck serve`` passes none, so a lone
 ``duplicate_resubmission`` approves.
 
@@ -266,15 +266,22 @@ def rule_duplicate(invoice: Invoice, prior: Iterable[Invoice]) -> tuple[PolicyHi
     ),)
 
 
-def prior_invoices(store: RunStore, *, exclude_run_id: str | None) -> tuple[Invoice, ...]:
-    """The current extracted invoice of every run in ``store`` except ``exclude_run_id``.
+def prior_invoices(store: RunStore, *, before_run_id: str | None = None) -> tuple[Invoice, ...]:
+    """The current extracted invoice of every run in ``store`` created before ``before_run_id``.
 
-    Runs with nothing extracted yet are left out; every other status counts.
-    ``exclude_run_id`` is the run being decided, so it never matches itself
-    (``None`` for a run not in the store yet).
+    ``before_run_id`` is the run being decided: it and every run created after
+    it are left out, so it never matches itself and resuming an earlier run
+    never matches one made later. ``None`` (a run not in the store yet) keeps
+    every run. Runs with nothing extracted yet are skipped; every other status
+    counts.
     """
-    return tuple(inv for r in store.list_runs()
-                 if r.run_id != exclude_run_id and (inv := r.invoice()) is not None)
+    earlier = []
+    for run in store.list_runs():
+        if run.run_id == before_run_id:
+            break
+        if (invoice := run.invoice()) is not None:
+            earlier.append(invoice)
+    return tuple(earlier)
 
 
 def rule_policy_hits(policy: PolicyResult) -> tuple[PolicyHit, ...]:
@@ -388,7 +395,7 @@ def run_pipeline(
     ``store`` each step is recorded as soon as it is produced, so a failure
     leaves the run at the failed stage. ``prior`` (default none) is the
     invoices seen before, for the duplicate rule; for a store's history pass
-    ``prior_invoices(store, exclude_run_id=None)``, read before this run starts.
+    ``prior_invoices(store)``, read before this run starts.
 
     ``tracer`` defaults to ``connections.tracer()``: ``NullTracer`` (nothing
     recorded or sent) unless Langfuse keys are set. The run is one trace with
@@ -441,7 +448,7 @@ def resume_run(
     helpers. A run with nothing left to run, or still awaiting intake, raises
     ``ValueError``; an unknown run raises ``RunNotFound``. Defaults, ``prior``
     and tracing match ``run_pipeline``; the trace carries ``resumed_from``. For
-    the store's history pass ``prior_invoices(store, exclude_run_id=run_id)``,
+    the store's history pass ``prior_invoices(store, before_run_id=run_id)``,
     so the run is not a duplicate of itself.
     """
     record = store.get_run(run_id)
