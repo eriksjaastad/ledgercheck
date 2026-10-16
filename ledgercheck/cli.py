@@ -24,6 +24,13 @@ Commands
     rate-limit and context errors). It only prints to stdout: no files, no
     service. ``ledgercheck beta-notes --help`` lists the fields (see
     ``ledgercheck.beta_notes``).
+``run-pdf``
+    Run one PDF invoice through intake, policy and approval and print the
+    decision. Reads the text layer only (scans are refused, no OCR);
+    ``--text-only`` prints that text fully offline, while the full run needs
+    the live extraction gate and stores the run under ``--runs-dir``.
+    ``ledgercheck run-pdf --help`` documents the gate, storage, the duplicate
+    check and exit codes (see ``ledgercheck.run_pdf``).
 
 Model routing (which model tier each LLM task uses, and the rate-limit and
 context-window runbook) is not a command; see ``ledgercheck.agents.routing``.
@@ -48,7 +55,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from ledgercheck import __version__, beta_notes, connections, web
+from ledgercheck import __version__, beta_notes, connections, run_pdf, web
 from ledgercheck.eval import judge
 
 
@@ -75,11 +82,14 @@ def build_parser() -> argparse.ArgumentParser:
     connections.build_parser(
         commands.add_parser("connections", help="show connection settings and their sources")
     )
+    run_pdf.build_parser(
+        commands.add_parser("run-pdf", help="run a PDF invoice (text layer; live extraction)")
+    )
     return parser
 
 
 COMMANDS = {"judge": judge.run, "serve": web.run, "beta-notes": beta_notes.run,
-            "connections": connections.run}
+            "connections": connections.run, "run-pdf": run_pdf.run}
 
 
 def main(argv: list[str] | None = None) -> int:

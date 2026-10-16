@@ -49,8 +49,9 @@ PO-unknown and PO-amount rules need a PO book; ``run_pipeline`` and
 exercise them. Likewise the duplicate rule needs earlier invoices:
 ``run_pipeline`` and ``resume_run`` check against their ``prior`` argument
 (none by default; ``prior_invoices(store, before_run_id=...)`` gives a run
-store's history) and ``ledgercheck serve`` passes none, so a lone
-``duplicate_resubmission`` approves.
+store's history), ``ledgercheck run-pdf`` passes its store's history and
+``ledgercheck serve`` passes none, so a lone ``duplicate_resubmission``
+approves.
 
 Pipeline
 --------
@@ -78,7 +79,7 @@ from types import MappingProxyType
 from typing import Iterable, Mapping
 
 from ledgercheck import connections
-from ledgercheck.agents.intake import IntakeAgent, record_intake
+from ledgercheck.agents.intake import Intake, IntakeAgent, record_intake
 from ledgercheck.agents.policy import (
     PolicyAgent,
     PolicyResult,
@@ -379,16 +380,18 @@ def run_pipeline(
     *,
     store: RunStore | None = None,
     run_id: str | None = None,
-    intake: IntakeAgent | None = None,
+    intake: Intake | None = None,
     policy: PolicyAgent | None = None,
     approval: ApprovalAgent | None = None,
     tracer: Tracer | None = None,
     prior: Iterable[Invoice] = (),
 ) -> PipelineResult:
-    """Run intake → policy → approval on fixture ``case_id``, offline.
+    """Run intake → policy → approval on ``case_id`` (a fixture, offline, by default).
 
-    ``case_id`` is anything ``IntakeAgent.extract`` takes: a case id or an
-    already loaded ``FixtureCase`` (the golden dataset passes the latter).
+    ``case_id`` is anything ``intake.extract`` takes: for ``IntakeAgent`` a
+    case id or an already loaded ``FixtureCase`` (the golden dataset passes the
+    latter), for ``PdfIntake`` a file name in its directory. The trace's
+    ``case_id`` is that id or file name.
 
     Defaults: ``IntakeAgent()`` (fixture path), ``PolicyAgent(rerank=False)``
     (whatever the env flag says) and ``ApprovalAgent()`` (no PO book). With a

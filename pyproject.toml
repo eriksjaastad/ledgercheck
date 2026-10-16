@@ -9,7 +9,9 @@ description = "Invoice reconciliation pipeline (intake, policy check, approval f
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-dependencies = []
+dependencies = [
+    "pypdf>=6.0,<7",
+]
 
 [project.optional-dependencies]
 dev = [

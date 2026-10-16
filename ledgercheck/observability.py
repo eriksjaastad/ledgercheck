@@ -20,7 +20,8 @@ Enabling Langfuse later
 -----------------------
 1. Create a project in Langfuse (free or paid) and copy its API keys.
 2. Install the optional extra: ``pip install 'ledgercheck[langfuse]'``.
-   ``dependencies`` stays empty; the SDK only comes in through this extra.
+   The SDK only comes in through this extra; ``pypdf`` is the one runtime
+   dependency.
 3. Set ``LANGFUSE_PUBLIC_KEY`` and ``LANGFUSE_SECRET_KEY``. Optionally set
    ``LANGFUSE_HOST`` to a self-hosted or regional Langfuse URL; unset or blank
    means the SDK's default cloud host.

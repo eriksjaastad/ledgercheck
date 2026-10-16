@@ -2,8 +2,7 @@
 
 Current limits of Ledger Check. Each one is described next to its code, in the docstring or `--help` named.
 
-- **Runs on the bundled synthetic invoices only.** No command reads your own invoices, and there is no PDF input (`ledgercheck.agents.intake`).
-- **Live LLM mode covers the judge and intake text extraction**, which no command calls and was never run live. Policy rerank is not implemented; setup and limits: `ledgercheck connections --help`.
+- **Live LLM mode covers the judge and intake text extraction**, which was never run live. Policy rerank is not implemented; setup and limits: `ledgercheck connections --help`.
 - **Approval checks are incomplete.** See "Not checked yet" in `ledgercheck.agents.approval`.
 - **`ledgercheck serve` is local only.** Loopback addresses only, no login (`ledgercheck serve --help`).
 - **Langfuse tracing is untested against a real server** (`ledgercheck.observability`).
