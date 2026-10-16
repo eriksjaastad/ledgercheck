@@ -43,10 +43,11 @@ def text_pdf(lines: list[str]) -> bytes:
     return bytes(out)
 
 
-def blank_pdf(password: str | None = None) -> bytes:
-    """A one-page PDF with no text, encrypted (RC4) when ``password`` is given."""
+def blank_pdf(password: str | None = None, pages: int = 1) -> bytes:
+    """A PDF of ``pages`` pages with no text, encrypted (RC4) when ``password`` is given."""
     writer = PdfWriter()
-    writer.add_blank_page(612, 842)
+    for _ in range(pages):
+        writer.add_blank_page(612, 842)
     if password is not None:
         writer.encrypt(password)
     buffer = io.BytesIO()
@@ -76,10 +77,11 @@ def test_read_pdf_text_round_trips_a_text_fixture(invoice_pdf):
 
 @pytest.mark.parametrize("content, message", [
     (blank_pdf(), "page 1 has no text layer (probably a scan); OCR is not supported"),
+    (blank_pdf(pages=0), "the PDF has no pages"),
     (blank_pdf(password="secret"), "encrypted PDF"),
     (b"Invoice INV-1 total 10.00", "not a readable PDF"),
     (None, "cannot read the file"),
-], ids=["blank", "encrypted", "not-a-pdf", "missing"])
+], ids=["blank", "no-pages", "encrypted", "not-a-pdf", "missing"])
 def test_read_pdf_text_refuses_with_the_file_name_only(tmp_path, content, message):
     path = tmp_path / "invoice.pdf"
     if content is not None:

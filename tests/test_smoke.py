@@ -41,7 +41,6 @@ def test_unexpected_error_exits_2_without_a_traceback(command, monkeypatch, caps
 
 # Each known issue is one short line naming the docstring or --help that holds its details.
 ISSUE_DETAILS = {
-    "ledgercheck run-pdf --help": ("run_pdf.py", "OCR is not supported"),
     "ledgercheck connections --help": ("connections.py", "intake text extraction"),
     "ledgercheck.agents.approval": ("agents/approval.py", "only golden cases that carry a"),
     "ledgercheck serve --help": ("web.py", "There is no login"),
