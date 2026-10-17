@@ -62,9 +62,9 @@ refused. After the call its actual cost is added: the provider's reported
 cost, else tokens times prices with each count capped at its pre-call bound,
 so an unreported cost never exceeds that worst case. The cap is only as
 accurate as the prices you enter. HTTP 429 is retried up to 3 times,
-honouring ``Retry-After`` (capped at 30 s); the fallback model and
-context-window handling are designed but not built (runbook in
-``ledgercheck.agents.routing``).
+honouring ``Retry-After`` (capped at 30 s), and a failed call is retried once on
+the route's fallback model; context-window handling is designed but not built
+(runbook in ``ledgercheck.agents.routing``).
 
 The LLM judge (``ledgercheck judge --live``) and intake text extraction
 (``IntakeAgent.extract_text``, behind ``ledgercheck run-pdf``, never run live) use

@@ -43,14 +43,17 @@ Runbook: rate limits (HTTP 429)
 Today: ``OpenRouterTransport`` retries a 429 up to 3 times, waiting for
 ``Retry-After`` when the response sends a number of seconds and 1, 2, 4
 seconds otherwise, each wait capped at 30 s. Then it raises
-``TransportError``, and ``ledgercheck judge --live`` stops with exit 2 and
-prints the run totals, retries included. Other HTTP errors are not retried.
+``TransportError``. ``OpenRouterRouter.complete`` answers that, or any other
+``TransportError`` from the primary model, by trying ``Route.fallback`` once:
+a small-tier task escalates to the large model, and large-tier tasks have no
+fallback. If the fallback also fails, its ``TransportError`` is raised, and
+``ledgercheck judge --live`` stops with exit 2 and prints the run totals,
+retries included. Other HTTP errors are not retried. A spend-cap or config
+error is not a ``TransportError``, so it never triggers the fallback.
 
 Planned:
 
-- When the retries run out, try ``Route.fallback`` once. A small-tier task
-  escalates to the large model. Large-tier tasks have no fallback today.
-- If that also fails, fail closed. The run stops at ``needs_human``
+- If the fallback also fails, fail closed. The run stops at ``needs_human``
   (``Outcome.NEEDS_HUMAN``) with the error recorded. Never auto-approve.
 - Record 429s, retries and the fallback in the trace and in the
   ``rate_limit_errors`` field of ``ledgercheck beta-notes``.
@@ -85,7 +88,12 @@ from enum import StrEnum
 from typing import Any, Callable, Mapping, Protocol
 
 from ledgercheck import connections
-from ledgercheck.connections import SETTINGS, ConnectionConfigError, Totals
+from ledgercheck.connections import (
+    SETTINGS,
+    ConnectionConfigError,
+    Totals,
+    TransportError,
+)
 
 
 class TaskKind(StrEnum):
@@ -197,4 +205,9 @@ class OpenRouterRouter:
 
     def complete(self, task: TaskKind, prompt: str) -> str:
         route = self.route(task)
-        return self._transport(route.model, prompt)
+        try:
+            return self._transport(route.model, prompt)
+        except TransportError:
+            if route.fallback is None:
+                raise
+            return self._transport(route.fallback, prompt)
