@@ -41,6 +41,7 @@ from pathlib import Path
 from ledgercheck import connections
 from ledgercheck.agents.approval import prior_invoices, run_pipeline
 from ledgercheck.agents.intake import IntakeAgent, PdfIntake
+from ledgercheck.agents.llm_client import InputTooLarge
 from ledgercheck.connections import LiveLLMDisabled
 from ledgercheck.pdf_text import PdfTextError, read_pdf_text
 from ledgercheck.run_store import DEFAULT_ROOT
@@ -63,7 +64,7 @@ def run(args: argparse.Namespace, intake: IntakeAgent | None = None) -> int:
     """Print FILE's text layer, or run it through the pipeline and print the decision.
 
     ``intake`` replaces the default ``IntakeAgent()`` (tests inject a fake
-    client). An unreadable PDF or a refused gate prints one stderr line, exit 2.
+    client). An unreadable PDF, text over the input budget or a refused gate prints one stderr line, exit 2.
     """
     connections.mask_output()  # also for Python callers
     logging.getLogger("pypdf").setLevel(logging.ERROR)  # its recovery warnings quote file bytes
@@ -76,7 +77,7 @@ def run(args: argparse.Namespace, intake: IntakeAgent | None = None) -> int:
         store = connections.run_store(args.runs_dir)
         prior = prior_invoices(store)  # read before this run is stored
         result = run_pipeline(path.name, store=store, intake=pdf_intake, prior=prior)
-    except PdfTextError as exc:
+    except (PdfTextError, InputTooLarge) as exc:
         print(f"ledgercheck run-pdf: {exc}", file=sys.stderr)
         return 2
     except LiveLLMDisabled as exc:

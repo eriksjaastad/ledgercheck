@@ -12,6 +12,8 @@ Past the gate, ``extract_invoice`` sends one request to the router's small-tier
 model through ``connections.router()``, so it needs provider ``openrouter``, a
 small-tier model id with prices and a spend cap (see
 ``ledgercheck connections --help``). It is tested only against a fake server.
+Text over ``MAX_INPUT_TOKENS`` (estimated at 4 characters per token) is refused
+with ``InputTooLarge`` before any request; it is never truncated or split.
 ``rerank`` raises ``NotImplementedError`` without any request. Tests inject
 fakes (an ``IntakeAgent`` client, a ``PolicyAgent`` reranker, or a router over
 a fake opener) instead of enabling the flag.
@@ -46,6 +48,14 @@ EXTRACT_PROMPT = (
 )
 
 
+CHARS_PER_TOKEN = 4  # the usual rough estimate; enough to size a prompt, not to bill it
+MAX_INPUT_TOKENS = 6000  # estimated tokens of invoice text per request, well inside any window
+
+
+class InputTooLarge(ValueError):
+    """The invoice text is over ``MAX_INPUT_TOKENS``; nothing was sent. Its message is only counts."""
+
+
 class LLMClient:
     """Live LLM client (extraction and rerank); constructing one is the spend gate.
 
@@ -65,7 +75,10 @@ class LLMClient:
     def extract_invoice(self, text: str) -> Mapping[str, Any]:
         """Return invoice fields in ``Invoice.from_dict`` shape for ``text``.
 
-        One request to the extraction model. The reply's JSON object is the
+        One request to the extraction model. Text whose estimated size
+        (``CHARS_PER_TOKEN`` characters per token) is over ``MAX_INPUT_TOKENS``
+        raises ``InputTooLarge`` before any request: a truncated invoice can drop
+        line items and still look valid. The reply's JSON object is the
         text from its first ``{`` to its last ``}``, so a fenced reply still
         parses. Raises ``ValueError`` when there is no JSON object or it does
         not parse; nothing is retried. Raises ``ConnectionConfigError``, before
@@ -75,6 +88,11 @@ class LLMClient:
             raise ConnectionConfigError(
                 "live extraction needs provider openrouter (now 'mock'): set "
                 "LEDGERCHECK_LLM_PROVIDER=openrouter or provider in connections.local.toml")
+        tokens = -(-len(text) // CHARS_PER_TOKEN)
+        if tokens > MAX_INPUT_TOKENS:
+            raise InputTooLarge(
+                f"the invoice text is about {tokens} tokens, over the {MAX_INPUT_TOKENS} limit: "
+                "split the input or use a model with a larger window")
         reply = self._router.complete(TaskKind.EXTRACTION, EXTRACT_PROMPT + text)
         start, end = reply.find("{"), reply.rfind("}")
         if not 0 <= start < end:

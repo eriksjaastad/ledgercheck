@@ -10,6 +10,7 @@ from test_intake_agent import FakeClient
 
 from ledgercheck import run_pdf
 from ledgercheck.agents import IntakeAgent
+from ledgercheck.agents.llm_client import InputTooLarge
 from ledgercheck.fixtures_loader import FIXTURES_DIR, load_case
 from ledgercheck.models import to_jsonable
 from ledgercheck.pdf_text import PdfTextError, read_pdf_text
@@ -111,6 +112,22 @@ def test_default_run_with_the_gate_off_refuses_in_one_line(invoice_pdf, tmp_path
     out, err = capsys.readouterr()
     assert out == "" and err.count("\n") == 1
     assert err.startswith("ledgercheck run-pdf: live LLM calls are off") and "--text-only" in err
+    assert not (tmp_path / "runs").exists()
+
+
+class OversizedClient:
+    name = "oversized"
+
+    def extract_invoice(self, text):
+        raise InputTooLarge("the invoice text is about 7000 tokens, over the 6000 limit: split it")
+
+
+def test_oversized_text_refuses_in_one_line_and_stores_nothing(invoice_pdf, tmp_path, capsys):
+    argv = ["--runs-dir", str(tmp_path / "runs"), str(invoice_pdf)]
+    assert run(argv, IntakeAgent(llm_client=OversizedClient())) == 2
+    out, err = capsys.readouterr()
+    assert out == "" and err.count("\n") == 1
+    assert err.startswith("ledgercheck run-pdf: the invoice text is about 7000 tokens")
     assert not (tmp_path / "runs").exists()
 
 

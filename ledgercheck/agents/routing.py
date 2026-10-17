@@ -61,20 +61,19 @@ Planned:
 Runbook: context-window failures
 --------------------------------
 Today: the transport sizes a prompt (an upper bound on its tokens) only to
-cap the worst-case cost of a call (see ``ledgercheck.connections``). The judge's
-prompts are small, and nothing else is sent.
+cap the worst-case cost of a call (see ``ledgercheck.connections``).
+``LLMClient.extract_invoice`` estimates the invoice text at 4 characters per
+token and refuses text over ``MAX_INPUT_TOKENS`` with a ``ValueError`` before
+any request. It never truncates (a truncated invoice can drop line items and
+still look valid) and does not split the text. A context-length error from the
+provider is a ``TransportError``, so the fallback above answers it with the
+larger model.
 
 Planned:
 
-- Estimate tokens before sending (characters / 4 is enough to start). Keep
-  each model's context limit next to its id here.
-- For an oversized invoice or PDF text, chunk it by page or line-item block.
-  Extract each chunk and merge, rather than silently truncating. A truncated
-  invoice can drop line items and still look valid.
-- Context-length errors escalate through ``Route.fallback`` to the
-  larger-context model.
-- If it still does not fit, or the merged chunks disagree on header totals,
-  fail closed to ``needs_human`` with the reason.
+- Keep each model's context limit next to its id, instead of the one
+  ``MAX_INPUT_TOKENS`` budget.
+- Stop a refused or still-too-long invoice at ``needs_human`` with the reason.
 - Record it in the ``context_errors`` field of ``ledgercheck beta-notes``.
 
 Not used: LiteLLM, the openai SDK and httpx; the transport uses ``urllib``
