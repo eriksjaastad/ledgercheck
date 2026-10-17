@@ -284,3 +284,31 @@ def test_docstring_names_env_vars_and_runbook_sections():
     for heading in ("Runbook: rate limits", "Runbook: context-window failures"):
         assert heading in DOC
     assert DOC.count("Today:") == 2 and DOC.count("Planned") == 2
+
+
+# --- fallback on a transport failure -----------------------------------------
+
+
+def _failing(sent, bad):
+    def transport(model, prompt):
+        sent.append(model)
+        if model == bad:
+            raise connections.TransportError("HTTP 429")
+        return "from " + model
+
+    return transport
+
+
+def test_failed_primary_is_retried_once_on_the_fallback_model():
+    sent = []
+    router = OpenRouterRouter(OPEN, transport=_failing(sent, LIVE_SMALL))
+    assert router.complete(TaskKind.EXTRACTION, "x") == "from " + LIVE_LARGE
+    assert sent == [LIVE_SMALL, LIVE_LARGE]
+
+
+def test_task_without_a_fallback_raises_after_one_call():
+    sent = []
+    router = OpenRouterRouter(OPEN, transport=_failing(sent, LIVE_LARGE))
+    with pytest.raises(connections.TransportError):
+        router.complete(TaskKind.JUDGE, "x")
+    assert sent == [LIVE_LARGE]
