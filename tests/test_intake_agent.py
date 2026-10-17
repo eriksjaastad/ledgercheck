@@ -12,6 +12,7 @@ from ledgercheck.agents import IntakeAgent, record_intake
 from ledgercheck.agents.llm_client import (
     API_KEY_ENV,
     ENV_FLAG,
+    InputTooLarge,
     LiveLLMDisabled,
     LLMClient,
 )
@@ -194,6 +195,13 @@ def test_extract_invoice_refuses_a_reply_without_a_json_object(monkeypatch, no_n
     client, _ = live_client(monkeypatch, "I could not read this invoice.")
     with pytest.raises(ValueError, match="no JSON object in the model reply"):
         client.extract_invoice("Invoice INV-1 total 10.00")
+
+
+def test_extract_invoice_refuses_oversized_text_before_any_request(monkeypatch, no_network):
+    client, opener = live_client(monkeypatch, "{}")
+    with pytest.raises(InputTooLarge, match=r"about 6001 tokens, over the 6000 limit"):
+        client.extract_invoice("x" * (6000 * 4 + 1))
+    assert opener.requests == []
 
 
 def test_extract_invoice_refuses_the_mock_provider_before_any_request(no_network):
